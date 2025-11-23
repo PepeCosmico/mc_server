@@ -1,4 +1,4 @@
 /target
 /runtime/*
 /.idea
-
+*/.DS_Store
