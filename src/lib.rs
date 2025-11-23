@@ -8,6 +8,8 @@ pub enum ServerState {
     Stopped,
     Starting,
     Loading,
+    Saving,
+    CreatingBackup,
     Running,
     Stopping,
     Crashed,
