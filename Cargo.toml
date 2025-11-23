@@ -1,0 +1,21 @@
+[package]
+name = "mcprocess"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1.39", features = ["full"] }
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+toml = "0.9.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
+flate2 = "1.0"      # Para compresión Gzip
+tar = "0.4"         # Para crear el archivo .tar
+chrono = "0.4"
+thiserror = "2.0"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full", "test-util"] }
+anyhow = "1.0"
+tempfile = "3" # Muy recomendado para crear carpetas temporales y borrarlas al acabar
