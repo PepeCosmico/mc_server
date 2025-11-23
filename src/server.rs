@@ -1,5 +1,6 @@
 use crate::config::Config;
 use crate::error::{Error, Result};
+use crate::logs::{McLog, McLogParser, ServerEvent};
 pub use crate::ServerState;
 use chrono::Local;
 use flate2::write::GzEncoder;
@@ -55,11 +56,13 @@ impl ServerProcess {
     async fn prepare(&self) -> Result<()> {
         let dir = PathBuf::from(&self.cfg.server.working_dir);
         tokio::fs::create_dir_all(&dir)
-            .await.map_err(|err| Error::CreateWorkingDirectoryFailed(err))?;
+            .await
+            .map_err(|err| Error::CreateWorkingDirectoryFailed(err))?;
 
         if self.cfg.server.auto_eula {
             tokio::fs::write(dir.join("eula.txt"), "eula=true\n")
-                .await.map_err(Error::CreateEulaFileFailed)?;
+                .await
+                .map_err(Error::CreateEulaFileFailed)?;
         }
 
         Ok(())
@@ -133,8 +136,14 @@ impl ServerProcess {
     /// Send arbitrary command to stdin (e.g. "list", "say hello", …).
     pub async fn exec_command(&mut self, cmd: &str) -> Result<()> {
         if let Some(stdin) = &mut self.stdin {
-            stdin.write_all(cmd.as_bytes()).await.map_err(Error::WriteStdinFailed)?;
-            stdin.write_all(b"\n").await.map_err(Error::WriteStdinFailed)?;
+            stdin
+                .write_all(cmd.as_bytes())
+                .await
+                .map_err(Error::WriteStdinFailed)?;
+            stdin
+                .write_all(b"\n")
+                .await
+                .map_err(Error::WriteStdinFailed)?;
             stdin.flush().await.map_err(Error::WriteStdinFailed)?;
         }
         Ok(())
@@ -145,7 +154,8 @@ impl ServerProcess {
         let backup_dir = PathBuf::from(&self.cfg.backup.path);
 
         if !backup_dir.exists() {
-            tokio::fs::create_dir_all(&backup_dir).await
+            tokio::fs::create_dir_all(&backup_dir)
+                .await
                 .map_err(Error::CreateBackupDirFailed)?;
         }
 
@@ -173,7 +183,9 @@ impl ServerProcess {
 
         tokio::task::spawn_blocking(move || {
             ServerProcess::create_archive(&working_dir, &backup_path_clone)
-        }).await.map_err(Error::BackupTaskFailed)??;
+        })
+            .await
+            .map_err(Error::BackupTaskFailed)??;
 
         if is_running {
             println!("Backup finalizado. Reactivando auto-save...");
@@ -201,16 +213,17 @@ impl ServerProcess {
         let enc = GzEncoder::new(tar_gz, Compression::default());
         let mut tar = tar::Builder::new(enc);
 
-        tar.append_dir_all(".", source_dir).map_err(Error::CreateArchiveFailed)?;
+        tar.append_dir_all(".", source_dir)
+            .map_err(Error::CreateArchiveFailed)?;
 
         Ok(())
     }
 
     /// Resuelve rutas absolutas y verifica existencia del JAR
     async fn resolve_paths(&self) -> Result<(PathBuf, PathBuf)> {
-        let working_dir = tokio::fs::canonicalize(&self.cfg.server.working_dir)
-            .await // <--- IMPORTANTE
-            .map_err(Error::ResolveWorkingDirectoryFailed)?;
+        let raw_path = PathBuf::from(&self.cfg.server.working_dir);
+        let working_dir =
+            dunce::canonicalize(&raw_path).map_err(Error::ResolveWorkingDirectoryFailed)?;
 
         let jar_path = working_dir.join(&self.cfg.server.jar);
 
@@ -264,26 +277,75 @@ impl ServerProcess {
             let mut out_reader = BufReader::new(stdout).lines();
             let mut err_reader = BufReader::new(stderr).lines();
 
+            // Marcamos Loading al inicio
             state_tx.send_replace(ServerState::Loading);
 
             loop {
                 select! {
+                    // --- STDOUT ---
                     line = out_reader.next_line() => {
                         match line {
-                            Ok(Some(l)) => {
-                                if *state_tx.borrow() == ServerState::Loading
-                                   && (l.contains("Done (") || l.contains("Done!"))
-                                {
-                                    let _ = state_tx.send(ServerState::Running);
-                                }
-                                let _ = log_tx.send(l);
+                            Ok(Some(raw_line)) => {
+                                // 1. Parseamos la línea con nuestro nuevo módulo
+                                let log_obj = if let Some(parsed) = McLogParser::parse(&raw_line) {
+
+                                    // 2. REACCIONAMOS A EVENTOS (State Machine)
+                                    match parsed.event {
+                                        ServerEvent::Ready(_) => {
+                                            // Solo pasamos a running si estábamos cargando
+                                            if *state_tx.borrow() == ServerState::Loading {
+                                                let _ = state_tx.send(ServerState::Running);
+                                            }
+                                        },
+                                        ServerEvent::Stopping => {
+                                            let _ = state_tx.send(ServerState::Stopping);
+                                        },
+                                        ServerEvent::Saving => {
+                                            let current = *state_tx.borrow();
+                                            if current == ServerState::Running {
+                                                let _ = state_tx.send(ServerState::Saving);
+                                            }
+                                        }
+                                        ServerEvent::Saved => {
+                                            let current = *state_tx.borrow();
+                                            if current == ServerState::Saving {
+                                                let _ = state_tx.send(ServerState::Running);
+                                            }
+                                        }
+                                        // Aquí podrías añadir lógica extra, ej:
+                                        // ServerEvent::Joined(player) => println!("¡Entró {}!", player),
+                                        _ => {}
+                                    }
+                                    parsed // Usamos el objeto parseado
+                                } else {
+                                    // Si falla el regex (línea rara), creamos un genérico
+                                    McLog {
+                                        timestamp: "".to_string(),
+                                        level: "RAW".to_string(),
+                                        message: raw_line,
+                                        event: ServerEvent::Unknown
+                                    }
+                                };
+
+                                // 3. Enviamos el JSON limpio a los clientes (Daemon/Frontend)
+                                let _ = log_tx.send(log_obj.to_json());
                             }
-                            _ => break,
+                            _ => break, // EOF
                         }
                     }
+                    // --- STDERR ---
                     line = err_reader.next_line() => {
                         match line {
-                            Ok(Some(l)) => { let _ = log_tx.send(format!("[stderr] {l}")); }
+                            Ok(Some(l)) => {
+                                // Empaquetamos stderr como un evento JSON también
+                                let err_entry = McLog {
+                                    timestamp: "".to_string(),
+                                    level: "STDERR".to_string(),
+                                    message: l,
+                                    event: ServerEvent::Unknown,
+                                };
+                                let _ = log_tx.send(err_entry.to_json());
+                            }
                             _ => break,
                         }
                     }
