@@ -66,9 +66,7 @@ impl ServerProcess {
     }
 
     /// Start the Java/Fabric process.
-    // Asegúrate de importar esto
     pub async fn start(&mut self) -> Result<()> {
-        // 1. Validaciones iniciales
         if self.is_running() {
             return Ok(());
         }
@@ -76,24 +74,19 @@ impl ServerProcess {
         self.state_tx.send_replace(ServerState::Starting);
         self.prepare().await?;
 
-        // 2. Preparar entorno (Rutas y Argumentos)
         let (working_dir, jar_path) = self.resolve_paths().await?;
         let args = self.build_jvm_args(&jar_path);
 
         println!("Ejecutando Java en: {:?}", working_dir);
 
-        // 3. Lanzar el proceso
         let mut child = self.spawn_child(&working_dir, &args)?;
 
-        // 4. Configurar I/O y Gestión
         self.process_id = child.id();
-        self.stdin = child.stdin.take(); // Guardamos stdin para escribir comandos
+        self.stdin = child.stdin.take();
 
-        // Extraemos stdout/stderr para pasárselos al logger
         let stdout = child.stdout.take().expect("child stdout missing");
         let stderr = child.stderr.take().expect("child stderr missing");
 
-        // 5. Iniciar tareas en segundo plano
         self.spawn_logger_task(stdout, stderr);
         self.spawn_reaper_task(child);
 
@@ -105,8 +98,6 @@ impl ServerProcess {
         if matches!(*self.state_tx.borrow(), ServerState::Stopped) {
             return Ok(());
         }
-        println!("Enviando comando de stop...");
-        // Enviamos el comando stop al stdin
         self.exec_command("stop").await?;
 
         let mut state_rx = self.state_tx.subscribe();
@@ -129,17 +120,11 @@ impl ServerProcess {
                 Ok(())
             }
             Err(_) => {
-                // 4. Si entramos aquí, es que pasó el tiempo y el servidor sigue vivo (Hung)
                 eprintln!(
                     "El servidor no respondió al stop en {}s. Forzando cierre (KILL)...",
                     timeout_secs
                 );
-
-                // Usamos la señal de kill que implementamos antes
                 self.kill_signal.notify_one();
-
-                // Opcional: Esperar un poco más para confirmar que murió,
-                // pero el notify es inmediato.
                 Ok(())
             }
         }
@@ -159,13 +144,11 @@ impl ServerProcess {
     pub async fn backup(&mut self) -> Result<String> {
         let backup_dir = PathBuf::from(&self.cfg.backup.path);
 
-        // 1. Asegurar que existe la carpeta de backups
         if !backup_dir.exists() {
             tokio::fs::create_dir_all(&backup_dir).await
                 .map_err(Error::CreateBackupDirFailed)?;
         }
 
-        // 2. Generar nombre del archivo: backup_YYYY-MM-DD_HH-MM-SS.tar.gz
         let now = Local::now();
         let filename = format!("backup_{}.tar.gz", now.format("%Y-%m-%d_%H-%M-%S"));
         let backup_path = backup_dir.join(&filename);
@@ -177,26 +160,21 @@ impl ServerProcess {
             self.exec_command("save-off").await?;
             self.exec_command("save-all").await?;
 
-            // Damos un pequeño respiro para asegurar que save-all vació el buffer al disco
             tokio::time::sleep(Duration::from_secs(2)).await;
         }
 
         println!("Iniciando compresión en: {:?}", backup_path);
 
-        // 4. Comprimir (Operación bloqueante -> spawn_blocking)
         let working_dir = PathBuf::from(&self.cfg.server.working_dir)
             .canonicalize()
             .map_err(Error::ResolveWorkingDirectoryFailed)?;
 
-        // Clonamos la ruta para enviarla al otro hilo
         let backup_path_clone = backup_path.clone();
 
-        // Ejecutamos la compresión en un hilo aparte para no congelar el servidor
         tokio::task::spawn_blocking(move || {
             ServerProcess::create_archive(&working_dir, &backup_path_clone)
         }).await.map_err(Error::BackupTaskFailed)??;
 
-        // 5. Reactivar guardado
         if is_running {
             println!("Backup finalizado. Reactivando auto-save...");
             self.exec_command("save-on").await?;
@@ -223,8 +201,6 @@ impl ServerProcess {
         let enc = GzEncoder::new(tar_gz, Compression::default());
         let mut tar = tar::Builder::new(enc);
 
-        // Añadimos todo el directorio del servidor al archivo comprimido
-        // "." significa que dentro del zip, los archivos estarán en la raíz
         tar.append_dir_all(".", source_dir).map_err(Error::CreateArchiveFailed)?;
 
         Ok(())
@@ -295,7 +271,6 @@ impl ServerProcess {
                     line = out_reader.next_line() => {
                         match line {
                             Ok(Some(l)) => {
-                                // Lógica de detección de arranque
                                 if *state_tx.borrow() == ServerState::Loading
                                    && (l.contains("Done (") || l.contains("Done!"))
                                 {

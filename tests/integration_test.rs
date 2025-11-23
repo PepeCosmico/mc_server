@@ -4,7 +4,6 @@ use std::{fs::File, time::Duration};
 use tempfile::tempdir;
 use tokio::time::timeout;
 
-// Helper para crear config
 fn create_test_config(work_dir: &str, script_path: &str, backup_path: &str) -> Config {
     Config {
         java: JavaCfg {
@@ -25,7 +24,6 @@ fn create_test_config(work_dir: &str, script_path: &str, backup_path: &str) -> C
     }
 }
 
-// FIX: Helper para obtener la ruta ABSOLUTA del script mock
 fn get_mock_script_path() -> String {
     let root = std::env::current_dir().expect("Failed to get current dir");
     let path = root.join("tests/resources/mock_java.sh");
@@ -41,6 +39,12 @@ fn get_mock_script_path() -> String {
     path.to_str().unwrap().to_string()
 }
 
+fn get_mock_backup_path() -> String {
+    let root = std::env::current_dir().expect("Failed to get current dir");
+    let path = root.join("runtime/backups");
+    path.to_str().unwrap().to_string()
+}
+
 #[tokio::test]
 async fn test_happy_path_lifecycle() -> anyhow::Result<()> {
     let dir = tempdir()?;
@@ -52,7 +56,8 @@ async fn test_happy_path_lifecycle() -> anyhow::Result<()> {
 
     // FIX: Usamos ruta absoluta
     let script_path = get_mock_script_path();
-    let cfg = create_test_config(dir_path, &script_path);
+    let backup_path = get_mock_backup_path();
+    let cfg = create_test_config(dir_path, &script_path, &backup_path);
 
     let mut srv = ServerProcess::new(cfg);
     let mut state_rx = srv.state();
@@ -86,9 +91,10 @@ async fn test_happy_path_lifecycle() -> anyhow::Result<()> {
 async fn test_missing_jar_error() -> anyhow::Result<()> {
     let dir = tempdir()?;
     let dir_path = dir.path().to_str().unwrap();
-    // No creamos jar
 
-    let cfg = create_test_config(dir_path, "java");
+    let script_path = get_mock_script_path();
+    let backup_path = get_mock_backup_path();
+    let cfg = create_test_config(dir_path, &script_path, &backup_path);
     let mut srv = ServerProcess::new(cfg);
 
     let result = srv.start().await;
@@ -121,7 +127,8 @@ async fn test_force_kill_timeout() -> anyhow::Result<()> {
 
     // FIX: Pasar ruta absoluta del bad script también, por si acaso
     let bad_script_abs = bad_script_path.canonicalize()?;
-    let cfg = create_test_config(dir_path, bad_script_abs.to_str().unwrap());
+    let backup_path = get_mock_backup_path();
+    let cfg = create_test_config(dir_path, bad_script_abs.to_str().unwrap(), &backup_path);
 
     let mut srv = ServerProcess::new(cfg);
     let mut state_rx = srv.state();
