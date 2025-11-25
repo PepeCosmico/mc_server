@@ -6,13 +6,31 @@ use tokio::time::timeout;
 // --- Helpers ---
 
 fn get_mock_script_path() -> String {
-    let root = std::env::current_dir().expect("Failed to get current dir");
-    let path = root.join("tests/resources/mock_java.sh");
-    if !path.exists() {
-        // Panic con mensaje claro si no encuentra el script
-        panic!("Mock script not found at {:?}. Did you create 'tests/resources/mock_java.sh'?", path);
+    let current_dir = std::env::current_dir().expect("Failed to get current dir");
+
+    // Intentamos buscar la ruta relativa dependiendo de dónde se lance el test
+    let possible_paths = vec![
+        // Opción A: Ejecutando desde crates/mcprocess/
+        current_dir.join("tests/resources/mock_java.sh"),
+        // Opción B: Ejecutando desde el root del workspace (mc_server/)
+        current_dir.join("crates/mcprocess/tests/resources/mock_java.sh"),
+    ];
+
+    for path in possible_paths {
+        if path.exists() {
+            // Encontrado! Devolvemos ruta absoluta
+            return path.canonicalize().unwrap().to_str().unwrap().to_string();
+        }
     }
-    path.to_str().unwrap().to_string()
+
+    panic!("
+    ERROR: No se encuentra 'mock_java.sh'.
+    Buscado en:
+    - crates/mcprocess/tests/resources/mock_java.sh
+    - tests/resources/mock_java.sh
+
+    Directorio actual: {:?}
+    ", current_dir);
 }
 
 fn create_full_config(work_dir: &str, backup_dir: &str) -> Config {
