@@ -9,15 +9,13 @@ anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1.0"
 toml = "0.9.8"
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 flate2 = "1.0"      # Para compresión Gzip
 tar = "0.4"         # Para crear el archivo .tar
 chrono = "0.4"
 thiserror = "2.0"
 dunce = "1.0"
 regex = "1.12"
-log = "0.4.28"
+sysinfo = "0.30"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full", "test-util"] }
