@@ -25,6 +25,7 @@ pub struct ServerProcess {
     state_tx: watch::Sender<ServerState>,
     log_tx: broadcast::Sender<String>,
     process_id: Option<u32>,
+    saved_signal: Arc<Notify>,
     kill_signal: Arc<Notify>,
 }
 
@@ -38,6 +39,7 @@ impl ServerProcess {
             state_tx,
             log_tx,
             process_id: None,
+            saved_signal: Arc::new(Notify::new()),
             kill_signal: Arc::new(Notify::new()),
         }
     }
@@ -166,11 +168,23 @@ impl ServerProcess {
         // 3. Preparar el servidor (Hot Backup)
         let is_running = self.is_running();
         if is_running {
-            println!("Servidor activo: desactivando auto-save para backup seguro...");
+            println!("Servidor activo: desactivando auto-save...");
             self.exec_command("save-off").await?;
+
+            // IMPORTANTE: Preparamos la espera ANTES de enviar el comando
+            // para no perdernos la notificación si es instantánea.
+            let save_notify = self.saved_signal.clone();
+            let save_waiter = save_notify.notified();
+
             self.exec_command("save-all").await?;
 
-            tokio::time::sleep(Duration::from_secs(2)).await;
+            println!("Esperando confirmación de guardado...");
+
+            // Esperamos a que suene el timbre (con un timeout de seguridad)
+            match timeout(Duration::from_secs(10), save_waiter).await {
+                Ok(_) => println!("✅ Guardado confirmado."),
+                Err(_) => eprintln!("⚠️ Timeout esperando guardado. Continuando..."),
+            }
         }
 
         println!("Iniciando compresión en: {:?}", backup_path);
@@ -272,6 +286,7 @@ impl ServerProcess {
     ) {
         let log_tx = self.log_tx.clone();
         let state_tx = self.state_tx.clone();
+        let save_notify = self.saved_signal.clone(); // Clonamos para mover al closure
 
         tokio::spawn(async move {
             let mut out_reader = BufReader::new(stdout).lines();
@@ -310,6 +325,7 @@ impl ServerProcess {
                                             let current = *state_tx.borrow();
                                             if current == ServerState::Saving {
                                                 let _ = state_tx.send(ServerState::Running);
+                                                save_notify.notify_waiters();
                                             }
                                         }
                                         // Aquí podrías añadir lógica extra, ej:
