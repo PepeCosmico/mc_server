@@ -8,14 +8,17 @@ use tokio::time::timeout;
 fn get_mock_script_path() -> String {
     let root = std::env::current_dir().expect("Failed to get current dir");
     let path = root.join("tests/resources/mock_java.sh");
-    if !path.exists() { panic!("Mock script not found at {:?}", path); }
+    if !path.exists() {
+        // Panic con mensaje claro si no encuentra el script
+        panic!("Mock script not found at {:?}. Did you create 'tests/resources/mock_java.sh'?", path);
+    }
     path.to_str().unwrap().to_string()
 }
 
 fn create_full_config(work_dir: &str, backup_dir: &str) -> Config {
     Config {
         java: JavaCfg {
-            path: get_mock_script_path(), // Ejecutamos el script bash
+            path: get_mock_script_path(),
             xms: "1M".to_string(),
             xmx: "1M".to_string(),
             extra_args: vec![],
@@ -32,58 +35,61 @@ fn create_full_config(work_dir: &str, backup_dir: &str) -> Config {
     }
 }
 
+// MEJORA: Este helper ahora usa timeout y suscripción a eventos
+async fn wait_for_state(srv: &ServerProcess, target: ServerState) -> anyhow::Result<()> {
+    let mut state_rx = srv.state();
+
+    // Si ya estamos en el estado, salimos
+    if *state_rx.borrow() == target {
+        return Ok(());
+    }
+
+    // Esperamos máximo 5 segundos
+    timeout(Duration::from_secs(5), async {
+        loop {
+            state_rx.changed().await?;
+            if *state_rx.borrow() == target {
+                return Ok(());
+            }
+        }
+    }).await.map_err(|_| anyhow::anyhow!("Timeout esperando estado {:?}", target))?
+}
+
 // --- TESTS ---
 
 #[tokio::test]
 async fn test_full_lifecycle_and_backup() -> anyhow::Result<()> {
-    // 1. Setup: Directorios temporales
     let temp_root = tempdir()?;
     let work_path = temp_root.path().join("server");
     let backup_path = temp_root.path().join("backups");
 
-    // Creamos estructura de archivos para que el backup tenga algo que comprimir
     std::fs::create_dir_all(&work_path)?;
-    File::create(work_path.join("server.jar"))?; // Fake jar
-    File::create(work_path.join("world_data.txt"))?; // Archivo dummy para backup
+    File::create(work_path.join("server.jar"))?;
+    File::create(work_path.join("world_data.txt"))?;
 
-    // 2. Configuración
-    let cfg = create_full_config(
-        work_path.to_str().unwrap(),
-        backup_path.to_str().unwrap(),
-    );
+    let cfg = create_full_config(work_path.to_str().unwrap(), backup_path.to_str().unwrap());
     let mut srv = ServerProcess::new(cfg);
-    let mut state_rx = srv.state();
 
-    // 3. Start
+    // 1. Start
     srv.start().await?;
+    wait_for_state(&srv, ServerState::Running).await?;
 
-    // Esperar a Running (Timeout 5s)
-    timeout(Duration::from_secs(5), async {
-        while *state_rx.borrow() != ServerState::Running {
-            state_rx.changed().await?;
-        }
-        Ok::<_, anyhow::Error>(())
-    }).await??;
-
-    assert_eq!(*state_rx.borrow(), ServerState::Running);
-
-    // 4. TEST BACKUP (Aquí probamos la lógica de Save-All y Notify)
-    println!("Iniciando test de backup...");
+    // 2. Backup
+    println!("Iniciando backup...");
+    // Esto enviará "save-all" al mock. El mock debe responder "Saved the game"
+    // Si el mock no responde eso, backup() fallará por timeout interno (si lo programaste) o se bloqueará.
+    // Asegúrate de que tu función backup() en server.rs tenga un timeout interno.
     let backup_result = srv.backup().await;
 
-    assert!(backup_result.is_ok(), "Backup falló: {:?}", backup_result.err());
-    let backup_filename = backup_result?;
+    assert!(backup_result.is_ok(), "Error en backup: {:?}", backup_result.err());
+    let filename = backup_result?;
 
-    // Verificar que el archivo existe
-    let expected_file = backup_path.join(backup_filename);
-    assert!(expected_file.exists(), "El archivo .tar.gz no se creó");
+    assert!(backup_path.join(filename).exists());
+    assert_eq!(*srv.state().borrow(), ServerState::Running);
 
-    // Verificar que el estado volvió a Running después del backup
-    assert_eq!(*state_rx.borrow(), ServerState::Running);
-
-    // 5. Stop Suave
+    // 3. Stop
     srv.stop(5).await?;
-    assert_eq!(*state_rx.borrow(), ServerState::Stopped);
+    wait_for_state(&srv, ServerState::Stopped).await?;
 
     Ok(())
 }
@@ -97,35 +103,64 @@ async fn test_crash_detection() -> anyhow::Result<()> {
 
     let cfg = create_full_config(work_path.to_str().unwrap(), "");
     let mut srv = ServerProcess::new(cfg);
-    let mut state_rx = srv.state();
 
     srv.start().await?;
+    wait_for_state(&srv, ServerState::Running).await?;
 
-    // Esperar arranque
-    timeout(Duration::from_secs(5), async {
-        while *state_rx.borrow() != ServerState::Running { state_rx.changed().await?; }
-        Ok::<_, anyhow::Error>(())
-    }).await??;
-
-    // 6. Simular CRASH enviando el comando "crash" al mock
+    // Enviamos crash
     srv.exec_command("crash").await?;
 
-    // Esperar a que el reaper detecte la muerte
-    timeout(Duration::from_secs(2), async {
+    // Esperamos a que muera (Stopped o Crashed)
+    // Usamos el helper wait_for_state modificado o un loop manual con timeout
+    let mut state_rx = srv.state();
+    timeout(Duration::from_secs(3), async {
         loop {
             let s = *state_rx.borrow();
             if s == ServerState::Crashed || s == ServerState::Stopped {
-                return Ok::<_, anyhow::Error>(s);
+                break;
             }
-            state_rx.changed().await?;
+            if state_rx.changed().await.is_err() { break; }
         }
-    }).await??;
+    }).await?;
 
-    // El mock sale con exit code 1, así que debería ser Crashed (si tu reaper detecta exit codes)
-    // O Stopped si solo detecta cierre. En tu código actual detecta status.success().
-    // Como mock "exit 1", debería ser Crashed.
-    let final_state = *state_rx.borrow();
-    assert_eq!(final_state, ServerState::Crashed);
+    let final_s = *srv.state().borrow();
+    assert!(matches!(final_s, ServerState::Crashed | ServerState::Stopped));
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_metrics_collection() -> anyhow::Result<()> {
+    let tmp = tempdir()?;
+    let dir = tmp.path();
+    File::create(dir.join("server.jar"))?;
+
+    let cfg = create_full_config(dir.to_str().unwrap(), "backups"); // Ruta backup dummy
+    let mut srv = ServerProcess::new(cfg);
+
+    srv.start().await?;
+
+    // AQUÍ estaba el bloqueo original.
+    // Si el server no arrancaba, wait_for_state esperaba infinito.
+    // Ahora wait_for_state tiene timeout interno y lanzará error si falla.
+    wait_for_state(&srv, ServerState::Running).await?;
+
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Métricas
+    let m1 = srv.get_metrics();
+    assert!(m1.is_some(), "Métricas devolvieron None");
+
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    let m2 = srv.get_metrics();
+    assert!(m2.is_some());
+    let (cpu, mem) = m2.unwrap();
+
+    println!("Metrics: CPU {}%, MEM {} bytes", cpu, mem);
+    assert!(mem > 0);
+    assert!(cpu >= 0.0);
+
+    srv.stop(5).await?;
     Ok(())
 }

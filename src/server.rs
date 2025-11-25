@@ -11,6 +11,7 @@ use std::{
     process::Stdio,
     sync::Arc,
 };
+use sysinfo::{Pid, System};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     process::{ChildStdin, Command},
@@ -21,6 +22,7 @@ use tokio::{
 
 pub struct ServerProcess {
     cfg: Config,
+    system: System,
     stdin: Option<ChildStdin>,
     state_tx: watch::Sender<ServerState>,
     log_tx: broadcast::Sender<String>,
@@ -35,6 +37,7 @@ impl ServerProcess {
         let (log_tx, _log_rx) = broadcast::channel(256);
         Self {
             cfg,
+            system: System::new(),
             stdin: None,
             state_tx,
             log_tx,
@@ -208,6 +211,19 @@ impl ServerProcess {
 
         println!("Backup completado exitosamente: {}", filename);
         Ok(filename)
+    }
+
+    pub fn get_metrics(&mut self) -> Option<(f32, u64)> {
+        if let Some(pid_val) = self.process_id {
+            let pid = Pid::from(pid_val as usize);
+
+            self.system.refresh_process(pid);
+
+            if let Some(process) = self.system.process(pid) {
+                return Some((process.cpu_usage(), process.memory()));
+            }
+        }
+        None
     }
 
     // PRIVATE METHODS

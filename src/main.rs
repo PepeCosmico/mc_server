@@ -54,38 +54,35 @@ async fn main() -> anyhow::Result<()> {
     }
     println!("--- SERVIDOR OPERATIVO Y ESPERANDO COMANDOS ---");
 
-    // 5. PRUEBA 1: Comando de chat / say
-    println!("> Enviando /say...");
-    srv.exec_command("say Probando el sistema de logs...").await?;
-    sleep(Duration::from_secs(2)).await;
 
-    // 6. PRUEBA 2: Comando de guardado manual
-    println!("> Enviando /save-all (Manual)...");
-    srv.exec_command("save-all").await?;
-    sleep(Duration::from_secs(3)).await;
+    println!("--- SERVIDOR ONLINE ---");
 
-    // 7. PRUEBA 3: Listar jugadores
-    println!("> Enviando /list...");
-    srv.exec_command("list").await?;
-    sleep(Duration::from_secs(2)).await;
+    println!("\n📊 [MONITOR] Iniciando monitorización de recursos (10 segundos)...");
 
-    // --- NUEVO: PRUEBA DE BACKUP ---
-    println!("\n📦 [TEST] Iniciando Backup Automático...");
-    println!("   (Deberías ver el estado cambiar a Saving y luego a Running)");
+    // BUCLE DE MONITORIZACIÓN
+    for i in 1..=10 {
+        sleep(Duration::from_secs(1)).await;
 
-    // Esta función bloqueará este hilo hasta que termine el backup,
-    // pero el servidor seguirá respondiendo en segundo plano.
-    match srv.backup().await {
-        Ok(filename) => {
-            println!("🎉 [TEST] Backup completado exitosamente: {}", filename);
+        // Llamamos a tu nueva función
+        match srv.get_metrics() {
+            Some((cpu, mem)) => {
+                // Convertimos bytes a Megabytes para que sea legible
+                let mem_mb = mem as f64 / 1024.0 / 1024.0;
+
+                println!(
+                    "⏱️  Seg {} | CPU: {:.2}% | RAM: {:.2} MB",
+                    i, cpu, mem_mb
+                );
+            }
+            None => eprintln!("⚠️ No se pudieron leer las métricas (¿Proceso muerto?)"),
         }
-        Err(e) => {
-            eprintln!("❌ [TEST] Falló el backup: {}", e);
+
+        // Si el servidor crashea mientras medimos, salimos
+        if *srv.state().borrow() == ServerState::Crashed {
+            println!("❌ El servidor murió durante la medición.");
+            break;
         }
     }
-    println!("---------------------------------------------------\n");
-
-    sleep(Duration::from_secs(2)).await;
 
     // 8. PRUEBA 4: Parada
     println!("> Enviando /stop...");
