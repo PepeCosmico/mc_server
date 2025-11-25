@@ -11,7 +11,7 @@ use std::{
     process::Stdio,
     sync::Arc,
 };
-use sysinfo::{Pid, System};
+use sysinfo::{Pid, ProcessesToUpdate, System};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     process::{ChildStdin, Command},
@@ -192,8 +192,7 @@ impl ServerProcess {
 
         println!("Iniciando compresión en: {:?}", backup_path);
 
-        let working_dir = PathBuf::from(&self.cfg.server.working_dir)
-            .canonicalize()
+        let working_dir = dunce::canonicalize(&self.cfg.server.working_dir)
             .map_err(Error::ResolveWorkingDirectoryFailed)?;
 
         let backup_path_clone = backup_path.clone();
@@ -217,7 +216,7 @@ impl ServerProcess {
         if let Some(pid_val) = self.process_id {
             let pid = Pid::from(pid_val as usize);
 
-            self.system.refresh_process(pid);
+            self.system.refresh_processes(ProcessesToUpdate::Some(&[pid]), true);
 
             if let Some(process) = self.system.process(pid) {
                 return Some((process.cpu_usage(), process.memory()));
@@ -243,7 +242,7 @@ impl ServerProcess {
         let enc = GzEncoder::new(tar_gz, Compression::default());
         let mut tar = tar::Builder::new(enc);
 
-        tar.append_dir_all(".", source_dir)
+        tar.append_dir_all("server", source_dir)
             .map_err(Error::CreateArchiveFailed)?;
 
         Ok(())

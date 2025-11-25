@@ -8,11 +8,12 @@ sleep 0.1
 echo "[10:00:05] [Server thread/INFO]: Done (1.0s)! For help, type \"help\""
 
 # 2. Bucle de lectura
+# IMPORTANTE: Usamos 'tr' para borrar \r por si ejecutas tests desde Windows
 while read -r line; do
-    # Imprimir lo que recibe para depuración (aparecerá en cargo test -- --nocapture)
-    echo "MOCK_RECEIVED: $line"
+    CMD=$(echo "$line" | tr -d '\r')
+    echo "MOCK_RECEIVED: $CMD"
 
-    case "$line" in
+    case "$CMD" in
         "stop")
             echo "[10:01:00] [Server thread/INFO]: Stopping the server"
             echo "[10:01:01] [Server thread/INFO]: Saving chunks..."
