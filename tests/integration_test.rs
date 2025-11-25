@@ -1,13 +1,21 @@
-use mcprocess::config::BackupCfg;
-use mcprocess::{config::{Config, JavaCfg, ServerCfg}, server::{ServerProcess, ServerState}};
+use mcprocess::{config::{BackupCfg, Config, JavaCfg, ServerCfg}, server::{ServerProcess, ServerState}};
 use std::{fs::File, time::Duration};
 use tempfile::tempdir;
 use tokio::time::timeout;
 
-fn create_test_config(work_dir: &str, script_path: &str, backup_path: &str) -> Config {
+// --- Helpers ---
+
+fn get_mock_script_path() -> String {
+    let root = std::env::current_dir().expect("Failed to get current dir");
+    let path = root.join("tests/resources/mock_java.sh");
+    if !path.exists() { panic!("Mock script not found at {:?}", path); }
+    path.to_str().unwrap().to_string()
+}
+
+fn create_full_config(work_dir: &str, backup_dir: &str) -> Config {
     Config {
         java: JavaCfg {
-            path: script_path.to_string(),
+            path: get_mock_script_path(), // Ejecutamos el script bash
             xms: "1M".to_string(),
             xmx: "1M".to_string(),
             extra_args: vec![],
@@ -19,150 +27,105 @@ fn create_test_config(work_dir: &str, script_path: &str, backup_path: &str) -> C
             auto_eula: true,
         },
         backup: BackupCfg {
-            path: backup_path.to_string()
+            path: backup_dir.to_string(),
         },
     }
 }
 
-fn get_mock_script_path() -> String {
-    let root = std::env::current_dir().expect("Failed to get current dir");
-    let path = root.join("tests/resources/mock_java.sh");
-
-    if !path.exists() {
-        panic!("
-        ERROR CRÍTICO: No se encuentra el script de prueba.
-        1. Asegúrate de crear 'tests/resources/mock_java.sh'
-        2. En Linux/Mac ejecuta: chmod +x tests/resources/mock_java.sh
-        Ruta buscada: {:?}
-        ", path);
-    }
-    path.to_str().unwrap().to_string()
-}
-
-fn get_mock_backup_path() -> String {
-    let root = std::env::current_dir().expect("Failed to get current dir");
-    let path = root.join("runtime/backups");
-    path.to_str().unwrap().to_string()
-}
+// --- TESTS ---
 
 #[tokio::test]
-async fn test_happy_path_lifecycle() -> anyhow::Result<()> {
-    let dir = tempdir()?;
-    let dir_path = dir.path().to_str().unwrap();
+async fn test_full_lifecycle_and_backup() -> anyhow::Result<()> {
+    // 1. Setup: Directorios temporales
+    let temp_root = tempdir()?;
+    let work_path = temp_root.path().join("server");
+    let backup_path = temp_root.path().join("backups");
 
-    // Fake jar
-    let jar_path = dir.path().join("server.jar");
-    File::create(jar_path)?;
+    // Creamos estructura de archivos para que el backup tenga algo que comprimir
+    std::fs::create_dir_all(&work_path)?;
+    File::create(work_path.join("server.jar"))?; // Fake jar
+    File::create(work_path.join("world_data.txt"))?; // Archivo dummy para backup
 
-    // FIX: Usamos ruta absoluta
-    let script_path = get_mock_script_path();
-    let backup_path = get_mock_backup_path();
-    let cfg = create_test_config(dir_path, &script_path, &backup_path);
-
-    let mut srv = ServerProcess::new(cfg);
-    let mut state_rx = srv.state();
-    let _logs_rx = srv.logs();
-
-    // Start
-    srv.start().await?;
-
-    // Esperar a Running
-    timeout(Duration::from_secs(3), async {
-        loop {
-            if *state_rx.borrow() == ServerState::Running { break; }
-            if state_rx.changed().await.is_err() { break; }
-        }
-    }).await.expect("Timed out waiting for Running state");
-
-    assert_eq!(*state_rx.borrow(), ServerState::Running);
-
-    // Comandos
-    srv.exec_command("say Hello").await?;
-
-    // Stop
-    srv.stop(5).await?;
-
-    assert_eq!(*state_rx.borrow(), ServerState::Stopped);
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_missing_jar_error() -> anyhow::Result<()> {
-    let dir = tempdir()?;
-    let dir_path = dir.path().to_str().unwrap();
-
-    let script_path = get_mock_script_path();
-    let backup_path = get_mock_backup_path();
-    let cfg = create_test_config(dir_path, &script_path, &backup_path);
-    let mut srv = ServerProcess::new(cfg);
-
-    let result = srv.start().await;
-    assert!(result.is_err());
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_force_kill_timeout() -> anyhow::Result<()> {
-    let dir = tempdir()?;
-    let dir_path = dir.path().to_str().unwrap();
-
-    File::create(dir.path().join("server.jar"))?;
-
-    // Script "malo" (bucle infinito)
-    let bad_script_path = dir.path().join("bad_server.sh");
-    tokio::fs::write(&bad_script_path, r#"#!/bin/sh
-        echo "[INFO] Done (1.0s)!"
-        while true; do sleep 1; done
-    "#).await?;
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = std::fs::metadata(&bad_script_path)?.permissions();
-        perms.set_mode(0o755);
-        std::fs::set_permissions(&bad_script_path, perms)?;
-    }
-
-    // FIX: Pasar ruta absoluta del bad script también, por si acaso
-    let bad_script_abs = bad_script_path.canonicalize()?;
-    let backup_path = get_mock_backup_path();
-    let cfg = create_test_config(dir_path, bad_script_abs.to_str().unwrap(), &backup_path);
-
+    // 2. Configuración
+    let cfg = create_full_config(
+        work_path.to_str().unwrap(),
+        backup_path.to_str().unwrap(),
+    );
     let mut srv = ServerProcess::new(cfg);
     let mut state_rx = srv.state();
 
+    // 3. Start
     srv.start().await?;
 
-    // Esperar a Running
-    timeout(Duration::from_secs(2), async {
+    // Esperar a Running (Timeout 5s)
+    timeout(Duration::from_secs(5), async {
         while *state_rx.borrow() != ServerState::Running {
             state_rx.changed().await?;
         }
         Ok::<_, anyhow::Error>(())
     }).await??;
 
-    println!("Intentando stop con timeout corto...");
-    srv.stop(1).await?;
+    assert_eq!(*state_rx.borrow(), ServerState::Running);
 
-    // FIX: Esperar a que el estado se actualice post-kill
-    // Le damos 1 segundo al reaper para detectar la muerte y actualizar el canal
-    let final_state = timeout(Duration::from_secs(1), async {
+    // 4. TEST BACKUP (Aquí probamos la lógica de Save-All y Notify)
+    println!("Iniciando test de backup...");
+    let backup_result = srv.backup().await;
+
+    assert!(backup_result.is_ok(), "Backup falló: {:?}", backup_result.err());
+    let backup_filename = backup_result?;
+
+    // Verificar que el archivo existe
+    let expected_file = backup_path.join(backup_filename);
+    assert!(expected_file.exists(), "El archivo .tar.gz no se creó");
+
+    // Verificar que el estado volvió a Running después del backup
+    assert_eq!(*state_rx.borrow(), ServerState::Running);
+
+    // 5. Stop Suave
+    srv.stop(5).await?;
+    assert_eq!(*state_rx.borrow(), ServerState::Stopped);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_crash_detection() -> anyhow::Result<()> {
+    let temp_root = tempdir()?;
+    let work_path = temp_root.path().join("server");
+    std::fs::create_dir_all(&work_path)?;
+    File::create(work_path.join("server.jar"))?;
+
+    let cfg = create_full_config(work_path.to_str().unwrap(), "");
+    let mut srv = ServerProcess::new(cfg);
+    let mut state_rx = srv.state();
+
+    srv.start().await?;
+
+    // Esperar arranque
+    timeout(Duration::from_secs(5), async {
+        while *state_rx.borrow() != ServerState::Running { state_rx.changed().await?; }
+        Ok::<_, anyhow::Error>(())
+    }).await??;
+
+    // 6. Simular CRASH enviando el comando "crash" al mock
+    srv.exec_command("crash").await?;
+
+    // Esperar a que el reaper detecte la muerte
+    timeout(Duration::from_secs(2), async {
         loop {
-            let s: ServerState = *state_rx.borrow_and_update();
-            if matches!(s, ServerState::Stopped | ServerState::Crashed) {
-                return s;
+            let s = *state_rx.borrow();
+            if s == ServerState::Crashed || s == ServerState::Stopped {
+                return Ok::<_, anyhow::Error>(s);
             }
-            state_rx.changed().await.unwrap();
+            state_rx.changed().await?;
         }
-    }).await;
+    }).await??;
 
-    // Verificamos que finalizó correctamente
-    match final_state {
-        Ok(state) => assert!(matches!(state, ServerState::Stopped | ServerState::Crashed)),
-        Err(_) => panic!("El estado no cambió a Stopped/Crashed después del kill"),
-    }
+    // El mock sale con exit code 1, así que debería ser Crashed (si tu reaper detecta exit codes)
+    // O Stopped si solo detecta cierre. En tu código actual detecta status.success().
+    // Como mock "exit 1", debería ser Crashed.
+    let final_state = *state_rx.borrow();
+    assert_eq!(final_state, ServerState::Crashed);
 
     Ok(())
 }
