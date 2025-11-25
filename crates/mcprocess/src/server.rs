@@ -140,6 +140,12 @@ impl ServerProcess {
 
     /// Send arbitrary command to stdin (e.g. "list", "say hello", …).
     pub async fn exec_command(&mut self, cmd: &str) -> Result<()> {
+        if !self.is_running() {
+            // Opcional: Podrías devolver Ok(()) y simplemente no hacer nada,
+            // pero un error es más informativo para el usuario.
+            return Err(Error::WriteWhileNotRunningError);
+        }
+
         if let Some(stdin) = &mut self.stdin {
             stdin
                 .write_all(cmd.as_bytes())
@@ -213,6 +219,10 @@ impl ServerProcess {
     }
 
     pub fn get_metrics(&mut self) -> Option<(f32, u64)> {
+        if !self.is_running() {
+            return None;
+        }
+
         if let Some(pid_val) = self.process_id {
             let pid = Pid::from(pid_val as usize);
 

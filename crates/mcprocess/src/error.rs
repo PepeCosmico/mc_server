@@ -20,6 +20,9 @@ pub enum Error {
     #[error("Error trying to write with ChildStdin")]
     WriteStdinFailed(#[source] std::io::Error),
 
+    #[error("Error trying to execute command when the server is not runnning")]
+    WriteWhileNotRunningError,
+
     #[error("JAR file does not exist")]
     JarFileDoesNotExist,
 
