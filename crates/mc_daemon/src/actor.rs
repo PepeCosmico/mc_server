@@ -8,7 +8,10 @@ pub enum DaemonCommand {
     Stop(oneshot::Sender<Result<String, String>>),
     Kill(oneshot::Sender<()>),
     Status(oneshot::Sender<ServerState>),
-    Input { cmd: String, resp: oneshot::Sender<Result<(), String>> },
+    Input {
+        cmd: String,
+        resp: oneshot::Sender<Result<String, String>>,
+    },
     Backup(oneshot::Sender<Result<String, String>>),
 }
 
@@ -22,14 +25,18 @@ pub fn spawn_actor(cfg: Config, mut rx: mpsc::Receiver<DaemonCommand>) {
         while let Some(msg) = rx.recv().await {
             match msg {
                 DaemonCommand::Start(reply) => {
-                    let res = srv.start().await
-                        .map(|_| "Servidor iniciado".to_string())
+                    let res = srv
+                        .start()
+                        .await
+                        .map(|_| "Server started".to_string())
                         .map_err(|e| e.to_string());
                     let _ = reply.send(res);
                 }
                 DaemonCommand::Stop(reply) => {
-                    let res = srv.stop(30).await
-                        .map(|_| "Servidor detenido".to_string())
+                    let res = srv
+                        .stop(30)
+                        .await
+                        .map(|_| "Server stopped".to_string())
                         .map_err(|e| e.to_string());
                     let _ = reply.send(res);
                 }
@@ -41,12 +48,20 @@ pub fn spawn_actor(cfg: Config, mut rx: mpsc::Receiver<DaemonCommand>) {
                     let _ = reply.send(state);
                 }
                 DaemonCommand::Input { cmd, resp: reply } => {
-                    let res = srv.exec_command(&cmd).await
+                    let res = srv
+                        .exec_command(&cmd)
+                        .await
+                        .map(|_| format!("Command sent: {}", cmd))
                         .map_err(|e| e.to_string());
                     let _ = reply.send(res);
                 }
                 DaemonCommand::Backup(reply) => {
-                    let res = srv.backup().await
+                    let res = srv
+                        .backup()
+                        .await
+                        .map(|f_name| {
+                            serde_json::json!({"success": true, "file": f_name}).to_string()
+                        })
                         .map_err(|e| e.to_string());
                     let _ = reply.send(res);
                 }

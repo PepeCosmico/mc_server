@@ -1,5 +1,5 @@
 use crate::actor::DaemonCommand;
-use crate::protocol::{TcpRequest, TcpResponse};
+use crate::protocol::{TcpRequest, TcpResponse, TcpResponseBuilder};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, oneshot};
@@ -23,7 +23,10 @@ pub async fn server_loop(addr: &str, tx: mpsc::Sender<DaemonCommand>) -> anyhow:
 }
 
 /// Lógica por cliente
-async fn handle_client(mut socket: TcpStream, tx: mpsc::Sender<DaemonCommand>) -> anyhow::Result<()> {
+async fn handle_client(
+    mut socket: TcpStream,
+    tx: mpsc::Sender<DaemonCommand>,
+) -> anyhow::Result<()> {
     let (reader, mut writer) = socket.split();
     let mut buf_reader = BufReader::new(reader);
     let mut line = String::new();
@@ -31,16 +34,23 @@ async fn handle_client(mut socket: TcpStream, tx: mpsc::Sender<DaemonCommand>) -
     loop {
         line.clear();
         let bytes_read = buf_reader.read_line(&mut line).await?;
-        if bytes_read == 0 { break; } // EOF
+        if bytes_read == 0 {
+            break;
+        } // EOF
 
         let trimmed = line.trim();
-        if trimmed.is_empty() { continue; }
+        if trimmed.is_empty() {
+            continue;
+        }
 
         // 1. Parsear
         let req: TcpRequest = match serde_json::from_str(trimmed) {
             Ok(val) => val,
             Err(e) => {
-                let err_json = serde_json::to_string(&TcpResponse::<()>::error(format!("JSON inválido: {}", e)))?;
+                let err_json = serde_json::to_string(&TcpResponse::<()>::error(format!(
+                    "JSON inválido: {}",
+                    e
+                )))?;
                 writer.write_all(err_json.as_bytes()).await?;
                 writer.write_all(b"\n").await?;
                 continue;
@@ -58,7 +68,10 @@ async fn handle_client(mut socket: TcpStream, tx: mpsc::Sender<DaemonCommand>) -
 }
 
 /// Helper para traducir Request -> Actor Command -> Response JSON
-async fn process_request(req: TcpRequest, tx: &mpsc::Sender<DaemonCommand>) -> anyhow::Result<String> {
+async fn process_request(
+    req: TcpRequest,
+    tx: &mpsc::Sender<DaemonCommand>,
+) -> anyhow::Result<String> {
     match req {
         TcpRequest::Status => {
             let (reply_tx, reply_rx) = oneshot::channel();
@@ -70,25 +83,26 @@ async fn process_request(req: TcpRequest, tx: &mpsc::Sender<DaemonCommand>) -> a
             let (reply_tx, reply_rx) = oneshot::channel();
             tx.send(DaemonCommand::Start(reply_tx)).await.ok();
             match reply_rx.await? {
-                Ok(msg) => Ok(serde_json::to_string(&TcpResponse::<()>::success(msg))?),
+                Ok(msg) => Ok(serde_json::to_string(
+                    &TcpResponseBuilder::<()>::builder(true).message(msg).build(),
+                )?),
                 Err(e) => Ok(serde_json::to_string(&TcpResponse::<()>::error(e))?),
             }
         }
         TcpRequest::Stop => {
             let (reply_tx, reply_rx) = oneshot::channel();
             tx.send(DaemonCommand::Stop(reply_tx)).await.ok();
-            match reply_rx.await? {
-                Ok(msg) => Ok(serde_json::to_string(&TcpResponse::<()>::success(msg))?),
-                Err(e) => Ok(serde_json::to_string(&TcpResponse::<()>::error(e))?),
-            }
+            wait_reply(reply_rx).await
         }
         TcpRequest::Input(cmd_str) => {
             let (reply_tx, reply_rx) = oneshot::channel();
-            tx.send(DaemonCommand::Input { cmd: cmd_str, resp: reply_tx }).await.ok();
-            match reply_rx.await? {
-                Ok(_) => Ok(serde_json::to_string(&TcpResponse::<()>::success("Comando enviado".into()))?),
-                Err(e) => Ok(serde_json::to_string(&TcpResponse::<()>::error(e))?),
-            }
+            tx.send(DaemonCommand::Input {
+                cmd: cmd_str,
+                resp: reply_tx,
+            })
+            .await
+            .ok();
+            wait_reply(reply_rx).await
         }
         TcpRequest::Backup => {
             let (reply_tx, reply_rx) = oneshot::channel();
@@ -99,5 +113,12 @@ async fn process_request(req: TcpRequest, tx: &mpsc::Sender<DaemonCommand>) -> a
             }
         }
         _ => Ok(serde_json::json!({ "success": false, "message": "No implementado" }).to_string()),
+    }
+}
+
+async fn wait_reply(reply_rx: oneshot::Receiver<Result<String, String>>) -> anyhow::Result<String> {
+    match reply_rx.await? {
+        Ok(msg) => Ok(serde_json::to_string(&TcpResponse::<()>::success(msg))?),
+        Err(e) => Ok(serde_json::to_string(&TcpResponse::<()>::error(e))?),
     }
 }

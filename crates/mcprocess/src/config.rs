@@ -30,8 +30,7 @@ pub struct BackupCfg {
 
 impl Config {
     pub fn load(path: &str) -> Result<Self> {
-        let s =
-            std::fs::read_to_string(path).map_err(Error::ReadConfigFailed)?;
+        let s = std::fs::read_to_string(path).map_err(Error::ReadConfigFailed)?;
         Ok(toml::from_str(&s).map_err(Error::DeserConfigFailed)?)
     }
 }

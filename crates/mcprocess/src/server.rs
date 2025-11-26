@@ -120,7 +120,7 @@ impl ServerProcess {
                 }
             }
         })
-            .await;
+        .await;
 
         match wait_result {
             Ok(_) => {
@@ -206,8 +206,8 @@ impl ServerProcess {
         tokio::task::spawn_blocking(move || {
             ServerProcess::create_archive(&working_dir, &backup_path_clone)
         })
-            .await
-            .map_err(Error::BackupTaskFailed)??;
+        .await
+        .map_err(Error::BackupTaskFailed)??;
 
         if is_running {
             println!("Backup finalizado. Reactivando auto-save...");
@@ -226,7 +226,8 @@ impl ServerProcess {
         if let Some(pid_val) = self.process_id {
             let pid = Pid::from(pid_val as usize);
 
-            self.system.refresh_processes(ProcessesToUpdate::Some(&[pid]), true);
+            self.system
+                .refresh_processes(ProcessesToUpdate::Some(&[pid]), true);
 
             if let Some(process) = self.system.process(pid) {
                 return Some((process.cpu_usage(), process.memory()));

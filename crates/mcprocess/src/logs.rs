@@ -3,19 +3,16 @@ use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(
-    tag = "type",
-    content = "data"
-)]
+#[serde(tag = "type", content = "data")]
 pub enum ServerEvent {
-    Ready(String),                  // "Done (X.Xs)!"
-    Saving,                         // "Saving..."
-    Saved,                          // "Saved the game"
-    Stopping,                       // "Stopping server"
-    Joined(String),                 // "Jugador joined the game"
-    Left(String),                   // "Jugador left the game"
+    Ready(String),                        // "Done (X.Xs)!"
+    Saving,                               // "Saving..."
+    Saved,                                // "Saved the game"
+    Stopping,                             // "Stopping server"
+    Joined(String),                       // "Jugador joined the game"
+    Left(String),                         // "Jugador left the game"
     Chat { author: String, msg: String }, // "<Jugador> mensaje"
-    Unknown,                        // Cualquier otra línea
+    Unknown,                              // Cualquier otra línea
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -39,9 +36,8 @@ impl McLogParser {
     pub fn parse(line: &str) -> Option<McLog> {
         // Regex principal: [Hora] [Hilo/Nivel]: Mensaje
         static LOG_RE: OnceLock<Regex> = OnceLock::new();
-        let re = LOG_RE.get_or_init(|| {
-            Regex::new(r"^\[(\d{2}:\d{2}:\d{2})] \[([^]]+)]: (.*)$").unwrap()
-        });
+        let re = LOG_RE
+            .get_or_init(|| Regex::new(r"^\[(\d{2}:\d{2}:\d{2})] \[([^]]+)]: (.*)$").unwrap());
 
         if let Some(caps) = re.captures(line) {
             let timestamp = caps.get(1)?.as_str().to_string();

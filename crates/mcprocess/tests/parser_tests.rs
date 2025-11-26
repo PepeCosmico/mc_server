@@ -17,8 +17,14 @@ fn test_detect_saving_sequence() {
     let line_start = "[14:20:00] [Server thread/INFO]: Saving the game...";
     let line_end = "[14:20:01] [Server thread/INFO]: Saved the game";
 
-    assert_eq!(McLogParser::parse(line_start).unwrap().event, ServerEvent::Saving);
-    assert_eq!(McLogParser::parse(line_end).unwrap().event, ServerEvent::Saved);
+    assert_eq!(
+        McLogParser::parse(line_start).unwrap().event,
+        ServerEvent::Saving
+    );
+    assert_eq!(
+        McLogParser::parse(line_end).unwrap().event,
+        ServerEvent::Saved
+    );
 }
 
 #[test]
@@ -50,7 +56,9 @@ fn test_security_chat_spoofing() {
             assert_eq!(author, "Troll");
             assert_eq!(msg, "Stopping the server");
         }
-        ServerEvent::Stopping => panic!("🚨 FALLO DE SEGURIDAD: Chat detectado como comando de sistema"),
+        ServerEvent::Stopping => {
+            panic!("🚨 FALLO DE SEGURIDAD: Chat detectado como comando de sistema")
+        }
         _ => panic!("Evento incorrecto detectado"),
     }
 }
