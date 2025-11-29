@@ -1,7 +1,7 @@
 use mcprocess::config::Config;
 use mcprocess::server::{ServerProcess, ServerState};
 use tokio::sync::{mpsc, oneshot};
-use tokio::time::{timeout, Duration};
+use tokio::time::{Duration, timeout};
 
 // Comandos internos (hilos -> actor)
 pub enum DaemonCommand {
@@ -45,8 +45,14 @@ pub fn spawn_actor(cfg: Config, mut rx: mpsc::Receiver<DaemonCommand>) {
                                         }
 
                                         // Si crashea o se para mientras arranca, es un error
-                                        if matches!(current, ServerState::Crashed | ServerState::Stopped) {
-                                            return Err("Server stopped or crashed during start up process".to_string());
+                                        if matches!(
+                                            current,
+                                            ServerState::Crashed | ServerState::Stopped
+                                        ) {
+                                            return Err(
+                                                "Server stopped or crashed during start up process"
+                                                    .to_string(),
+                                            );
                                         }
 
                                         // Esperamos al siguiente cambio
@@ -54,13 +60,17 @@ pub fn spawn_actor(cfg: Config, mut rx: mpsc::Receiver<DaemonCommand>) {
                                             return Err("Internal error".to_string());
                                         }
                                     }
-                                }).await;
+                                })
+                                .await;
 
                                 // 4. Procesamos el resultado de la espera
                                 let final_response = match wait_result {
-                                    Ok(Ok(msg)) => Ok(msg.to_string()),     // Llegó a Running
-                                    Ok(Err(e)) => Err(e.to_string()),       // Crasheó
-                                    Err(_) => Err("Timeout: El servidor tardó demasiado en arrancar.".to_string()),
+                                    Ok(Ok(msg)) => Ok(msg.to_string()), // Llegó a Running
+                                    Ok(Err(e)) => Err(e.to_string()),   // Crasheó
+                                    Err(_) => {
+                                        Err("Timeout: El servidor tardó demasiado en arrancar."
+                                            .to_string())
+                                    }
                                 };
 
                                 // 5. Enviamos la respuesta al cliente TCP (que ha estado esperando todo este tiempo)
@@ -81,35 +91,50 @@ pub fn spawn_actor(cfg: Config, mut rx: mpsc::Receiver<DaemonCommand>) {
                     // Usamos exec_command en lugar de srv.stop() porque srv.stop() bloquea
                     // esperando el resultado, y aquí no queremos bloquear al Actor.
                     match srv.exec_command("stop").await {
-                        Err(e) => { let _ = reply.send(Err(e.to_string())); }
+                        Err(e) => {
+                            let _ = reply.send(Err(e.to_string()));
+                        }
                         Ok(_) => {
                             // 3. Delegamos la espera a una tarea de fondo
                             let mut state_rx = srv.state();
                             tokio::spawn(async move {
-                                println!("⏳ Esperando cierre del servidor...");
-
-                                // Damos 60 segundos para guardar y cerrar
-                                let wait = timeout(Duration::from_secs(60), async {
+                                let wait_result = timeout(Duration::from_secs(60), async {
                                     loop {
-                                        // Esperamos cambio de estado
-                                        if state_rx.changed().await.is_err() { return; }
+                                        let current = *state_rx.borrow();
 
-                                        let s = *state_rx.borrow();
-                                        if matches!(s, ServerState::Stopped | ServerState::Crashed) {
-                                            return;
+                                        if current == ServerState::Stopped {
+                                            return Ok("Server stopped".to_string());
+                                        }
+
+                                        if matches!(
+                                            current,
+                                            ServerState::Crashed | ServerState::Stopped
+                                        ) {
+                                            return Err(
+                                                "Server stopped or crashed during start up process"
+                                                    .to_string(),
+                                            );
+                                        }
+
+                                        if state_rx.changed().await.is_err() {
+                                            return Err("Internal error".to_string());
                                         }
                                     }
-                                }).await;
+                                })
+                                .await;
 
-                                match wait {
-                                    Ok(_) => {
-                                        let _ = reply.send(Ok("Servidor detenido correctamente.".to_string()));
-                                    }
-                                    Err(_) => {
-                                        // Si falla el timeout, sugerimos usar Kill
-                                        let _ = reply.send(Err("Timeout: El servidor no se cerró a tiempo. Usa 'Kill'.".to_string()));
-                                    }
-                                }
+                                // 4. Procesamos el resultado de la espera
+                                let final_response = match wait_result {
+                                    Ok(Ok(msg)) => Ok(msg.to_string()), // Llegó a Running
+                                    Ok(Err(e)) => Err(e.to_string()),   // Crasheó
+                                    Err(_) => Err(
+                                        "Timeout: El servidor tardó demasiado en para el servidor."
+                                            .to_string(),
+                                    ),
+                                };
+
+                                // 5. Enviamos la respuesta al cliente TCP (que ha estado esperando todo este tiempo)
+                                let _ = reply.send(final_response);
                             });
                         }
                     }

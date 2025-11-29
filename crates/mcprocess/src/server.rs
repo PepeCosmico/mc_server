@@ -1,10 +1,10 @@
+pub use crate::ServerState;
 use crate::config::Config;
 use crate::error::{Error, Result};
 use crate::logs::{McLog, McLogParser, ServerEvent};
-pub use crate::ServerState;
 use chrono::Local;
-use flate2::write::GzEncoder;
 use flate2::Compression;
+use flate2::write::GzEncoder;
 use std::fs::File;
 use std::{
     path::{Path, PathBuf},
@@ -16,8 +16,8 @@ use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     process::{ChildStdin, Command},
     select,
-    sync::{broadcast, watch, Notify},
-    time::{timeout, Duration},
+    sync::{Notify, broadcast, watch},
+    time::{Duration, timeout},
 };
 
 pub struct ServerProcess {
@@ -100,40 +100,12 @@ impl ServerProcess {
     }
 
     /// Send `/stop` to the server and wait a bit.
-    pub async fn stop(&mut self, timeout_secs: u64) -> Result<()> {
+    pub async fn stop(&mut self) -> Result<()> {
         if matches!(*self.state_tx.borrow(), ServerState::Stopped) {
             return Ok(());
         }
         self.exec_command("stop").await?;
-
-        let mut state_rx = self.state_tx.subscribe();
-
-        let duration = Duration::from_secs(timeout_secs);
-
-        let wait_result = timeout(duration, async {
-            while let Ok(()) = state_rx.changed().await {
-                let state = *state_rx.borrow();
-                if matches!(state, ServerState::Stopped | ServerState::Crashed) {
-                    return;
-                }
-            }
-        })
-            .await;
-
-        match wait_result {
-            Ok(_) => {
-                println!("Servidor detenido correctamente.");
-                Ok(())
-            }
-            Err(_) => {
-                eprintln!(
-                    "El servidor no respondió al stop en {}s. Forzando cierre (KILL)...",
-                    timeout_secs
-                );
-                self.kill_signal.notify_one();
-                Ok(())
-            }
-        }
+        Ok(())
     }
 
     /// Send arbitrary command to stdin (e.g. "list", "say hello", …).
@@ -199,8 +171,8 @@ impl ServerProcess {
         tokio::task::spawn_blocking(move || {
             ServerProcess::create_archive(&working_dir, &backup_path_clone)
         })
-            .await
-            .map_err(Error::BackupTaskFailed)??;
+        .await
+        .map_err(Error::BackupTaskFailed)??;
 
         if is_running {
             self.exec_command("save-on").await?;
