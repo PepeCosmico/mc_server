@@ -118,7 +118,7 @@ async fn test_full_lifecycle_and_backup() -> anyhow::Result<()> {
     assert_eq!(*srv.state().borrow(), ServerState::Running);
 
     // 3. Stop
-    srv.stop(5).await?;
+    srv.stop().await?;
     wait_for_state(&srv, ServerState::Stopped).await?;
 
     Ok(())
@@ -197,6 +197,6 @@ async fn test_metrics_collection() -> anyhow::Result<()> {
     assert!(mem > 0);
     assert!(cpu >= 0.0);
 
-    srv.stop(5).await?;
+    srv.stop().await?;
     Ok(())
 }
