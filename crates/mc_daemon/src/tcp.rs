@@ -1,5 +1,5 @@
 use crate::actor::DaemonCommand;
-use crate::protocol::{TcpRequest, TcpResponse, TcpResponseBuilder};
+use crate::protocol::{TcpRequest, TcpResponseBuilder};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, oneshot};
@@ -47,10 +47,10 @@ async fn handle_client(
         let req: TcpRequest = match serde_json::from_str(trimmed) {
             Ok(val) => val,
             Err(e) => {
-                let err_json = serde_json::to_string(&TcpResponse::<()>::error(format!(
+                let err_json = serde_json::to_string(&TcpResponseBuilder::<()>::builder(false).message(format!(
                     "JSON inválido: {}",
                     e
-                )))?;
+                )).build())?;
                 writer.write_all(err_json.as_bytes()).await?;
                 writer.write_all(b"\n").await?;
                 continue;
@@ -77,7 +77,9 @@ async fn process_request(
             let (reply_tx, reply_rx) = oneshot::channel();
             tx.send(DaemonCommand::Status(reply_tx)).await.ok();
             let state = reply_rx.await?;
-            Ok(serde_json::to_string(&TcpResponse::data(state))?)
+            Ok(serde_json::to_string(
+                &TcpResponseBuilder::builder(true).data(state).build(),
+            )?)
         }
         TcpRequest::Start => {
             let (reply_tx, reply_rx) = oneshot::channel();
@@ -86,39 +88,22 @@ async fn process_request(
                 Ok(msg) => Ok(serde_json::to_string(
                     &TcpResponseBuilder::<()>::builder(true).message(msg).build(),
                 )?),
-                Err(e) => Ok(serde_json::to_string(&TcpResponse::<()>::error(e))?),
+                Err(e) => Ok(serde_json::to_string(&TcpResponseBuilder::<()>::builder(false).message(e).build())?),
             }
         }
         TcpRequest::Stop => {
             let (reply_tx, reply_rx) = oneshot::channel();
             tx.send(DaemonCommand::Stop(reply_tx)).await.ok();
-            wait_reply(reply_rx).await
-        }
-        TcpRequest::Input(cmd_str) => {
-            let (reply_tx, reply_rx) = oneshot::channel();
-            tx.send(DaemonCommand::Input {
-                cmd: cmd_str,
-                resp: reply_tx,
-            })
-            .await
-            .ok();
-            wait_reply(reply_rx).await
-        }
-        TcpRequest::Backup => {
-            let (reply_tx, reply_rx) = oneshot::channel();
-            tx.send(DaemonCommand::Backup(reply_tx)).await.ok();
             match reply_rx.await? {
-                Ok(fname) => Ok(serde_json::json!({ "success": true, "data": fname }).to_string()),
-                Err(e) => Ok(serde_json::to_string(&TcpResponse::<()>::error(e))?),
+                Ok(msg) => Ok(serde_json::to_string(
+                    &TcpResponseBuilder::<()>::builder(true).message(msg).build(),
+                )?),
+                Err(e) => Ok(serde_json::to_string(
+                    &TcpResponseBuilder::<String>::builder(false)
+                        .message(e)
+                        .build(),
+                )?),
             }
         }
-        _ => Ok(serde_json::json!({ "success": false, "message": "No implementado" }).to_string()),
-    }
-}
-
-async fn wait_reply(reply_rx: oneshot::Receiver<Result<String, String>>) -> anyhow::Result<String> {
-    match reply_rx.await? {
-        Ok(msg) => Ok(serde_json::to_string(&TcpResponse::<()>::success(msg))?),
-        Err(e) => Ok(serde_json::to_string(&TcpResponse::<()>::error(e))?),
     }
 }
