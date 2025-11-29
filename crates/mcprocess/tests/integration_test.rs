@@ -1,4 +1,7 @@
-use mcprocess::{config::{BackupCfg, Config, JavaCfg, ServerCfg}, server::{ServerProcess, ServerState}};
+use mcprocess::{
+    config::{BackupCfg, Config, JavaCfg, ServerCfg},
+    server::{ServerProcess, ServerState},
+};
 use std::{fs::File, time::Duration};
 use tempfile::tempdir;
 use tokio::time::timeout;
@@ -23,14 +26,17 @@ fn get_mock_script_path() -> String {
         }
     }
 
-    panic!("
+    panic!(
+        "
     ERROR: No se encuentra 'mock_java.sh'.
     Buscado en:
     - crates/mcprocess/tests/resources/mock_java.sh
     - tests/resources/mock_java.sh
 
     Directorio actual: {:?}
-    ", current_dir);
+    ",
+        current_dir
+    );
 }
 
 fn create_full_config(work_dir: &str, backup_dir: &str) -> Config {
@@ -70,7 +76,9 @@ async fn wait_for_state(srv: &ServerProcess, target: ServerState) -> anyhow::Res
                 return Ok(());
             }
         }
-    }).await.map_err(|_| anyhow::anyhow!("Timeout esperando estado {:?}", target))?
+    })
+    .await
+    .map_err(|_| anyhow::anyhow!("Timeout esperando estado {:?}", target))?
 }
 
 // --- TESTS ---
@@ -99,7 +107,11 @@ async fn test_full_lifecycle_and_backup() -> anyhow::Result<()> {
     // Asegúrate de que tu función backup() en server.rs tenga un timeout interno.
     let backup_result = srv.backup().await;
 
-    assert!(backup_result.is_ok(), "Error en backup: {:?}", backup_result.err());
+    assert!(
+        backup_result.is_ok(),
+        "Error en backup: {:?}",
+        backup_result.err()
+    );
     let filename = backup_result?;
 
     assert!(backup_path.join(filename).exists());
@@ -137,12 +149,18 @@ async fn test_crash_detection() -> anyhow::Result<()> {
             if s == ServerState::Crashed || s == ServerState::Stopped {
                 break;
             }
-            if state_rx.changed().await.is_err() { break; }
+            if state_rx.changed().await.is_err() {
+                break;
+            }
         }
-    }).await?;
+    })
+    .await?;
 
     let final_s = *srv.state().borrow();
-    assert!(matches!(final_s, ServerState::Crashed | ServerState::Stopped));
+    assert!(matches!(
+        final_s,
+        ServerState::Crashed | ServerState::Stopped
+    ));
 
     Ok(())
 }

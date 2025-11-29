@@ -85,8 +85,6 @@ impl ServerProcess {
         let (working_dir, jar_path) = self.resolve_paths().await?;
         let args = self.build_jvm_args(&jar_path);
 
-        println!("Ejecutando Java en: {:?}", working_dir);
-
         let mut child = self.spawn_child(&working_dir, &args)?;
 
         self.process_id = child.id();
@@ -177,7 +175,6 @@ impl ServerProcess {
         // 3. Preparar el servidor (Hot Backup)
         let is_running = self.is_running();
         if is_running {
-            println!("Servidor activo: desactivando auto-save...");
             self.exec_command("save-off").await?;
 
             // IMPORTANTE: Preparamos la espera ANTES de enviar el comando
@@ -187,16 +184,12 @@ impl ServerProcess {
 
             self.exec_command("save-all").await?;
 
-            println!("Esperando confirmación de guardado...");
-
             // Esperamos a que suene el timbre (con un timeout de seguridad)
             match timeout(Duration::from_secs(10), save_waiter).await {
                 Ok(_) => println!("✅ Guardado confirmado."),
                 Err(_) => eprintln!("⚠️ Timeout esperando guardado. Continuando..."),
             }
         }
-
-        println!("Iniciando compresión en: {:?}", backup_path);
 
         let working_dir = dunce::canonicalize(&self.cfg.server.working_dir)
             .map_err(Error::ResolveWorkingDirectoryFailed)?;
@@ -210,11 +203,9 @@ impl ServerProcess {
             .map_err(Error::BackupTaskFailed)??;
 
         if is_running {
-            println!("Backup finalizado. Reactivando auto-save...");
             self.exec_command("save-on").await?;
         }
 
-        println!("Backup completado exitosamente: {}", filename);
         Ok(filename)
     }
 
@@ -226,7 +217,8 @@ impl ServerProcess {
         if let Some(pid_val) = self.process_id {
             let pid = Pid::from(pid_val as usize);
 
-            self.system.refresh_processes(ProcessesToUpdate::Some(&[pid]), true);
+            self.system
+                .refresh_processes(ProcessesToUpdate::Some(&[pid]), true);
 
             if let Some(process) = self.system.process(pid) {
                 return Some((process.cpu_usage(), process.memory()));
@@ -328,12 +320,12 @@ impl ServerProcess {
                             Ok(Some(raw_line)) => {
                                 // 1. Parseamos la línea con nuestro nuevo módulo
                                 let log_obj = if let Some(parsed) = McLogParser::parse(&raw_line) {
-
                                     // 2. REACCIONAMOS A EVENTOS (State Machine)
                                     match parsed.event {
                                         ServerEvent::Ready(_) => {
                                             // Solo pasamos a running si estábamos cargando
                                             if *state_tx.borrow() == ServerState::Loading {
+                                                println!("✅ Servidor detectado como LISTO.");
                                                 let _ = state_tx.send(ServerState::Running);
                                             }
                                         },

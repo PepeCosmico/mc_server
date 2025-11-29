@@ -1,9 +1,9 @@
 use serde::Serialize;
 
 pub mod config;
-pub mod server;
 pub mod error;
 pub mod logs;
+pub mod server;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize)]
 pub enum ServerState {

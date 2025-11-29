@@ -1,8 +1,8 @@
 use mcprocess::config::Config;
 use tokio::sync::mpsc;
 
-mod protocol;
 mod actor;
+mod protocol;
 mod tcp;
 
 use crate::actor::DaemonCommand;
