@@ -4,6 +4,7 @@ use tokio::sync::mpsc;
 mod actor;
 mod protocol;
 mod tcp;
+mod utils;
 
 use crate::actor::DaemonCommand;
 
