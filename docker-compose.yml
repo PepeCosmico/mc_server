@@ -1,0 +1,24 @@
+services:
+  mc-daemon:
+    build: .
+    container_name: mc_daemon
+    restart: unless-stopped
+    ports:
+      - "8080:8080"   # Puerto del Daemon (API TCP)
+      - "25565:25565" # Puerto de Minecraft
+    volumes:
+      # Mapeamos la carpeta 'data' de tu PC a la carpeta 'server' del contenedor
+      # Aquí es donde pondrás tu server.jar, world, logs, etc.
+      - ./data:/app/server
+      
+      # Mapeamos los backups para que queden guardados fuera
+      - ./backups:/app/backups
+      
+      # (Opcional) Mapear la config para editarla sin reconstruir
+      - ./mcprocess.toml:/app/mcprocess.toml
+    
+    # Límites de recursos (Opcional pero recomendado para evitar OOM)
+    deploy:
+      resources:
+        limits:
+          memory: 6G

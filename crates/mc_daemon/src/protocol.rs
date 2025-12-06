@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-// Lo que recibimos (JSON)
 #[derive(Debug, Deserialize)]
 #[serde(tag = "action", content = "payload")]
 pub enum TcpRequest {
@@ -9,7 +8,6 @@ pub enum TcpRequest {
     Status,
 }
 
-// Lo que respondemos (JSON)
 #[derive(Debug, Serialize)]
 pub struct TcpResponse<T> {
     pub success: bool,
