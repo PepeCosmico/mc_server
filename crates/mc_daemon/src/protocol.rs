@@ -6,6 +6,7 @@ pub enum TcpRequest {
     Start,
     Stop,
     Status,
+    Op(Op),
 }
 
 #[derive(Debug, Serialize)]
@@ -47,4 +48,10 @@ impl<T> TcpResponseBuilder<T> {
             data: self.data,
         }
     }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Op {
+    pub player_name: String,
+    pub op: bool,
 }

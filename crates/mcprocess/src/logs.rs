@@ -8,6 +8,7 @@ pub enum ServerEvent {
     Ready(String),                        // "Done (X.Xs)!"
     Saving,                               // "Saving..."
     Saved,                                // "Saved the game"
+    SaveOff,                              // "Automatic saving is now disabled"
     Stopping,                             // "Stopping server"
     Joined(String),                       // "Jugador joined the game"
     Left(String),                         // "Jugador left the game"
@@ -85,6 +86,10 @@ impl McLogParser {
 
             if msg.starts_with("Saved the game") {
                 return ServerEvent::Saved;
+            }
+
+            if msg.starts_with("Automatic saving is now disabled") {
+                return ServerEvent::SaveOff;
             }
         }
 

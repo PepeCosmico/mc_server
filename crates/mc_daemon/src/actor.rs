@@ -1,14 +1,14 @@
-use mcprocess::config::Config;
-use mcprocess::server::{ServerProcess, ServerState};
+use crate::protocol::Op;
+use crate::utils::wait_for_state;
+use mcprocess::{config::Config, server::ServerProcess, state::ServerState};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::{timeout, Duration};
-
-use crate::utils::wait_for_state;
 
 pub enum DaemonCommand {
     Start(oneshot::Sender<Result<String, String>>),
     Stop(oneshot::Sender<Result<String, String>>),
     Status(oneshot::Sender<ServerState>),
+    Op(oneshot::Sender<Result<(), String>>, Op),
 }
 
 pub fn spawn_actor(cfg: Config, mut rx: mpsc::Receiver<DaemonCommand>) {
@@ -31,7 +31,7 @@ pub fn spawn_actor(cfg: Config, mut rx: mpsc::Receiver<DaemonCommand>) {
                                     .await
                                     .map(|_| "Server Running");
                             })
-                                .await;
+                            .await;
 
                             let final_response = match wait_result {
                                 Ok(Ok(msg)) => Ok(msg.to_string()),
@@ -65,7 +65,7 @@ pub fn spawn_actor(cfg: Config, mut rx: mpsc::Receiver<DaemonCommand>) {
                                         .await
                                         .map(|_| "Server Stopped");
                                 })
-                                    .await;
+                                .await;
 
                                 let final_response = match wait_result {
                                     Ok(Ok(msg)) => Ok(msg.to_string()),
@@ -84,6 +84,17 @@ pub fn spawn_actor(cfg: Config, mut rx: mpsc::Receiver<DaemonCommand>) {
                 DaemonCommand::Status(reply) => {
                     let state = *srv.state().borrow();
                     let _ = reply.send(state);
+                }
+                DaemonCommand::Op(reply, op) => {
+                    let res = srv.op(op.op, op.player_name.clone()).await;
+                    match res {
+                        Ok(()) => {
+                            let _ = reply.send(Ok(()));
+                        }
+                        Err(_) => {
+                            let _ = reply.send(Err("Error sending Command.".to_string()));
+                        }
+                    }
                 }
             }
         }

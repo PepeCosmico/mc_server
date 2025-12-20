@@ -1,5 +1,5 @@
 # --- ETAPA 1: BUILDER (Compilación de Rust) ---
-FROM rust:1.83-slim-bookworm as builder
+FROM rust:1.92-slim-bookworm as builder
 
 # Creamos directorio de trabajo
 WORKDIR /usr/src/app
@@ -26,7 +26,7 @@ RUN mkdir -p server backups
 COPY --from=builder /usr/src/app/target/release/mc_daemon /app/mc_daemon
 
 # Copiamos el archivo de configuración (asegúrate de tener uno de producción)
-COPY mcprocess.toml /app/mcprocess.toml
+COPY configs/prod.toml /app/prod.toml
 
 # Exponemos el puerto del Daemon (TCP) y el de Minecraft (25565)
 EXPOSE 8080

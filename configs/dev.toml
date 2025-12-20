@@ -1,12 +1,12 @@
 [java]
 path = "/usr/bin/java"
-xms = "1G"
-xmx = "2G"
-extra_args = ["-XX:+UseG1GC"]
+xms = "512M"
+xmx = "1G"
+extra_args = []
 
 [server]
 working_dir = "./runtime/server"
-jar = "fabric-server-1.21.4.jar"
+jar = "server.jar"
 nogui = true
 auto_eula = true
 
