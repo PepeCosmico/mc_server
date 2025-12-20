@@ -1,6 +1,7 @@
 use mcprocess::{
     config::{BackupCfg, Config, JavaCfg, ServerCfg},
-    server::{ServerProcess, ServerState},
+    server::ServerProcess,
+    state::ServerState,
 };
 use std::{fs::File, time::Duration};
 use tempfile::tempdir;
@@ -8,41 +9,41 @@ use tokio::time::timeout;
 
 // --- Helpers ---
 
-fn get_mock_script_path() -> String {
-    let current_dir = std::env::current_dir().expect("Failed to get current dir");
+fn get_mock_binary_path() -> String {
+    let bin_name = if cfg!(windows) {
+        "mock_java.exe"
+    } else {
+        "mock_java"
+    };
+    let mut current_dir = std::env::current_dir().expect("Failed to get current dir");
 
-    // Intentamos buscar la ruta relativa dependiendo de dónde se lance el test
-    let possible_paths = vec![
-        // Opción A: Ejecutando desde crates/mcprocess/
-        current_dir.join("tests/resources/mock_java.sh"),
-        // Opción B: Ejecutando desde el root del workspace (mc_server/)
-        current_dir.join("crates/mcprocess/tests/resources/mock_java.sh"),
-    ];
+    for _ in 0..4 {
+        let candidate = current_dir.join("target").join("debug").join(bin_name);
+        if candidate.exists() {
+            return candidate
+                .canonicalize()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_string();
+        }
 
-    for path in possible_paths {
-        if path.exists() {
-            // Encontrado! Devolvemos ruta absoluta
-            return path.canonicalize().unwrap().to_str().unwrap().to_string();
+        if !current_dir.pop() {
+            break;
         }
     }
 
     panic!(
-        "
-    ERROR: No se encuentra 'mock_java.sh'.
-    Buscado en:
-    - crates/mcprocess/tests/resources/mock_java.sh
-    - tests/resources/mock_java.sh
-
-    Directorio actual: {:?}
-    ",
-        current_dir
+        "ERROR: No se pudo encontrar el binario '{}'. \n\
+         Asegúrate de haber compilado el proyecto con 'cargo build' o 'cargo test' antes de ejecutar.",
+        bin_name
     );
 }
 
 fn create_full_config(work_dir: &str, backup_dir: &str) -> Config {
     Config {
         java: JavaCfg {
-            path: get_mock_script_path(),
+            path: get_mock_binary_path(),
             xms: "1M".to_string(),
             xmx: "1M".to_string(),
             extra_args: vec![],
@@ -85,41 +86,65 @@ async fn wait_for_state(srv: &ServerProcess, target: ServerState) -> anyhow::Res
 
 #[tokio::test]
 async fn test_full_lifecycle_and_backup() -> anyhow::Result<()> {
+    // --- SETUP ---
     let temp_root = tempdir()?;
     let work_path = temp_root.path().join("server");
     let backup_path = temp_root.path().join("backups");
 
+    // Creamos directorios
     std::fs::create_dir_all(&work_path)?;
+    std::fs::create_dir_all(&backup_path)?; // Importante crear carpeta de backups
+
+    // Archivos dummy para que el zip tenga contenido
     File::create(work_path.join("server.jar"))?;
     File::create(work_path.join("world_data.txt"))?;
 
+    // CONFIGURACIÓN USANDO EL MOCK BINARIO
     let cfg = create_full_config(work_path.to_str().unwrap(), backup_path.to_str().unwrap());
+
     let mut srv = ServerProcess::new(cfg);
 
-    // 1. Start
+    // --- 1. START ---
     srv.start().await?;
     wait_for_state(&srv, ServerState::Running).await?;
+    println!("✅ Server Started");
 
-    // 2. Backup
-    println!("Iniciando backup...");
-    // Esto enviará "save-all" al mock. El mock debe responder "Saved the game"
-    // Si el mock no responde eso, backup() fallará por timeout interno (si lo programaste) o se bloqueará.
-    // Asegúrate de que tu función backup() en server.rs tenga un timeout interno.
-    let backup_result = srv.backup().await;
+    // --- 2. BACKUP (Con protección de Timeout) ---
+    println!("⏳ Iniciando backup...");
 
+    // Envolvemos el backup en un timeout de 5s para evitar hangs
+    let backup_result = timeout(Duration::from_secs(10), srv.backup()).await;
+
+    // Verificar si hubo timeout
     assert!(
         backup_result.is_ok(),
-        "Error en backup: {:?}",
-        backup_result.err()
+        "❌ El backup excedió el tiempo límite (Timeout)"
     );
-    let filename = backup_result?;
 
-    assert!(backup_path.join(filename).exists());
+    // Verificar resultado del backup
+    let inner_result = backup_result.unwrap();
+    assert!(
+        inner_result.is_ok(),
+        "❌ Falló la lógica de backup: {:?}",
+        inner_result.err()
+    );
+
+    let filename = inner_result.unwrap();
+    println!("✅ Backup completado: {}", filename);
+
+    // Validaciones post-backup
+    assert!(
+        backup_path.join(&filename).exists(),
+        "El archivo zip no se creó en disco"
+    );
+
+    // El estado debe haber vuelto a Running
     assert_eq!(*srv.state().borrow(), ServerState::Running);
 
-    // 3. Stop
+    // --- 3. STOP ---
     srv.stop().await?;
     wait_for_state(&srv, ServerState::Stopped).await?;
+    println!("✅ Server Stopped");
 
     Ok(())
 }

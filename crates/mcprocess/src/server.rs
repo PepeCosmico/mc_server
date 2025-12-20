@@ -1,23 +1,25 @@
-pub use crate::ServerState;
 use crate::config::Config;
 use crate::error::{Error, Result};
 use crate::logs::{McLog, McLogParser, ServerEvent};
+use crate::state::ServerState;
 use chrono::Local;
-use flate2::Compression;
 use flate2::write::GzEncoder;
+use flate2::Compression;
 use std::fs::File;
+use std::process::Stdio;
 use std::{
     path::{Path, PathBuf},
-    process::Stdio,
     sync::Arc,
 };
 use sysinfo::{Pid, ProcessesToUpdate, System};
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::process::Command;
 use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
-    process::{ChildStdin, Command},
+    io::AsyncWriteExt,
+    process::ChildStdin,
     select,
-    sync::{Notify, broadcast, watch},
-    time::{Duration, timeout},
+    sync::{broadcast, watch, Notify},
+    time::{timeout, Duration},
 };
 
 pub struct ServerProcess {
@@ -108,11 +110,25 @@ impl ServerProcess {
         Ok(())
     }
 
+    /// Send '/op player_name' to server while it is running.
+    pub async fn op(&mut self, op: bool, player_name: String) -> Result<()> {
+        if !self.is_running() {
+            return Err(Error::WriteWhileNotRunningError);
+        }
+
+        let action = match op {
+            true => "op",
+            false => "deop",
+        };
+
+        self.exec_command(&format!("{} {}", action, player_name))
+            .await?;
+        Ok(())
+    }
+
     /// Send arbitrary command to stdin (e.g. "list", "say hello", …).
     pub async fn exec_command(&mut self, cmd: &str) -> Result<()> {
         if !self.is_running() {
-            // Opcional: Podrías devolver Ok(()) y simplemente no hacer nada,
-            // pero un error es más informativo para el usuario.
             return Err(Error::WriteWhileNotRunningError);
         }
 
@@ -254,7 +270,6 @@ impl ServerProcess {
         args
     }
 
-    /// Configura y lanza el Command
     fn spawn_child(&self, working_dir: &Path, args: &[String]) -> Result<tokio::process::Child> {
         Command::new(&self.cfg.java.path)
             .args(args)
@@ -262,104 +277,11 @@ impl ServerProcess {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .kill_on_drop(true) // ¡Seguridad ante crashes!
+            .kill_on_drop(true)
             .spawn()
             .map_err(|err| Error::SpawnFailed(err))
     }
 
-    /// Inicia la tarea que lee logs y detecta el estado "Done"
-    fn spawn_logger_task(
-        &self,
-        stdout: tokio::process::ChildStdout,
-        stderr: tokio::process::ChildStderr,
-    ) {
-        let log_tx = self.log_tx.clone();
-        let state_tx = self.state_tx.clone();
-        let save_notify = self.saved_signal.clone(); // Clonamos para mover al closure
-
-        tokio::spawn(async move {
-            let mut out_reader = BufReader::new(stdout).lines();
-            let mut err_reader = BufReader::new(stderr).lines();
-
-            // Marcamos Loading al inicio
-            state_tx.send_replace(ServerState::Loading);
-
-            loop {
-                select! {
-                    // --- STDOUT ---
-                    line = out_reader.next_line() => {
-                        match line {
-                            Ok(Some(raw_line)) => {
-                                // 1. Parseamos la línea con nuestro nuevo módulo
-                                let log_obj = if let Some(parsed) = McLogParser::parse(&raw_line) {
-                                    // 2. REACCIONAMOS A EVENTOS (State Machine)
-                                    match parsed.event {
-                                        ServerEvent::Ready(_) => {
-                                            // Solo pasamos a running si estábamos cargando
-                                            if *state_tx.borrow() == ServerState::Loading {
-                                                println!("✅ Servidor detectado como LISTO.");
-                                                let _ = state_tx.send(ServerState::Running);
-                                            }
-                                        },
-                                        ServerEvent::Stopping => {
-                                            let _ = state_tx.send(ServerState::Stopping);
-                                        },
-                                        ServerEvent::Saving => {
-                                            let current = *state_tx.borrow();
-                                            if current == ServerState::Running {
-                                                let _ = state_tx.send(ServerState::Saving);
-                                            }
-                                        }
-                                        ServerEvent::Saved => {
-                                            let current = *state_tx.borrow();
-                                            if current == ServerState::Saving {
-                                                let _ = state_tx.send(ServerState::Running);
-                                                save_notify.notify_waiters();
-                                            }
-                                        }
-                                        // Aquí podrías añadir lógica extra, ej:
-                                        // ServerEvent::Joined(player) => println!("¡Entró {}!", player),
-                                        _ => {}
-                                    }
-                                    parsed // Usamos el objeto parseado
-                                } else {
-                                    // Si falla el regex (línea rara), creamos un genérico
-                                    McLog {
-                                        timestamp: "".to_string(),
-                                        level: "RAW".to_string(),
-                                        message: raw_line,
-                                        event: ServerEvent::Unknown
-                                    }
-                                };
-
-                                // 3. Enviamos el JSON limpio a los clientes (Daemon/Frontend)
-                                let _ = log_tx.send(log_obj.to_json());
-                            }
-                            _ => break, // EOF
-                        }
-                    }
-                    // --- STDERR ---
-                    line = err_reader.next_line() => {
-                        match line {
-                            Ok(Some(l)) => {
-                                // Empaquetamos stderr como un evento JSON también
-                                let err_entry = McLog {
-                                    timestamp: "".to_string(),
-                                    level: "STDERR".to_string(),
-                                    message: l,
-                                    event: ServerEvent::Unknown,
-                                };
-                                let _ = log_tx.send(err_entry.to_json());
-                            }
-                            _ => break,
-                        }
-                    }
-                }
-            }
-        });
-    }
-
-    /// Inicia la tarea que espera a que el proceso muera
     fn spawn_reaper_task(&self, mut child: tokio::process::Child) {
         let state_tx = self.state_tx.clone();
         let kill_signal = self.kill_signal.clone();
@@ -381,5 +303,102 @@ impl ServerProcess {
                 }
             }
         });
+    }
+
+    fn spawn_logger_task(
+        &self,
+        stdout: tokio::process::ChildStdout,
+        stderr: tokio::process::ChildStderr,
+    ) {
+        let log_tx = self.log_tx.clone();
+        let state_tx = self.state_tx.clone();
+        let save_notify = self.saved_signal.clone();
+
+        tokio::spawn(async move {
+            let mut out_reader = BufReader::new(stdout).lines();
+            let mut err_reader = BufReader::new(stderr).lines();
+
+            // Initial State
+            state_tx.send_replace(ServerState::Loading);
+
+            loop {
+                select! {
+                    Ok(Some(line)) = out_reader.next_line() => {
+                        Self::handle_stdout_line(line, &log_tx, &state_tx, &save_notify);
+                    }
+                    Ok(Some(line)) = err_reader.next_line() => {
+                        Self::handle_stderr_line(line, &log_tx);
+                    }
+                    else => break,
+                }
+            }
+        });
+    }
+
+    fn handle_stdout_line(
+        line: String,
+        log_tx: &broadcast::Sender<String>,
+        state_tx: &watch::Sender<ServerState>,
+        save_notify: &Arc<Notify>,
+    ) {
+        let log_obj = match McLogParser::parse(&line) {
+            Some(parsed) => {
+                Self::apply_state_transition(&parsed.event, state_tx, save_notify);
+                parsed
+            }
+            None => McLog {
+                timestamp: "".to_string(),
+                level: "RAW".to_string(),
+                message: line,
+                event: ServerEvent::Unknown,
+            },
+        };
+
+        // Send to frontend/daemon
+        let _ = log_tx.send(log_obj.to_json());
+    }
+
+    // 3. STDERR HANDLER
+    // specific formatting for errors
+    fn handle_stderr_line(line: String, log_tx: &broadcast::Sender<String>) {
+        let err_entry = McLog {
+            timestamp: "".to_string(),
+            level: "STDERR".to_string(),
+            message: line,
+            event: ServerEvent::Unknown,
+        };
+        let _ = log_tx.send(err_entry.to_json());
+    }
+
+    fn apply_state_transition(
+        event: &ServerEvent,
+        state_tx: &watch::Sender<ServerState>,
+        save_notify: &Arc<Notify>,
+    ) {
+        let current_state = *state_tx.borrow();
+
+        match event {
+            ServerEvent::Ready(_) => {
+                if current_state == ServerState::Loading {
+                    let _ = state_tx.send(ServerState::Running);
+                }
+            }
+            ServerEvent::Stopping => {
+                if current_state == ServerState::Running {
+                    let _ = state_tx.send(ServerState::Stopping);
+                }
+            }
+            ServerEvent::Saving => {
+                if current_state == ServerState::Running {
+                    let _ = state_tx.send(ServerState::Saving);
+                }
+            }
+            ServerEvent::Saved => {
+                let _ = state_tx.send(ServerState::Running);
+                save_notify.notify_waiters();
+            }
+
+            _ => {}
+        }
     }
 }
