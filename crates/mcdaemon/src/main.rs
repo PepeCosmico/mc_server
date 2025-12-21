@@ -2,12 +2,11 @@ use mcprocess::config::Config;
 use std::env;
 use tokio::sync::mpsc;
 
+use crate::actor::DaemonCommand;
+
 mod actor;
-mod protocol;
 mod tcp;
 mod utils;
-
-use crate::actor::DaemonCommand;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
