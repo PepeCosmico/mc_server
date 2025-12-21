@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "action", content = "payload")]
 pub enum TcpRequest {
     Start,
@@ -50,7 +50,7 @@ impl<T> TcpResponseBuilder<T> {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Op {
     pub player_name: String,
     pub op: bool,

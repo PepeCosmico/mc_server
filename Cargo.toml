@@ -1,6 +1,6 @@
 [workspace]
-members = [
-    "crates/mc_daemon",
+members = ["crates/mc_cli",
+    "crates/mcdaemon",
     "crates/mcprocess"
 ]
 resolver = "2"

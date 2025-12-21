@@ -1,6 +1,5 @@
-use crate::protocol::Op;
 use crate::utils::wait_for_state;
-use mcprocess::{config::Config, server::ServerProcess, state::ServerState};
+use mcprocess::{config::Config, protocol::Op, server::ServerProcess, state::ServerState};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::{timeout, Duration};
 

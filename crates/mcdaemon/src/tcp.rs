@@ -1,5 +1,5 @@
 use crate::actor::DaemonCommand;
-use crate::protocol::{TcpRequest, TcpResponseBuilder};
+use mcprocess::protocol::{TcpRequest, TcpResponseBuilder};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, oneshot};
@@ -103,7 +103,7 @@ async fn process_request(
             }
         }
         TcpRequest::Op(op) => {
-            let (reply_tx, reply_rx) = oneshot::channel();
+            let (reply_tx, _reply_rx) = oneshot::channel();
             tx.send(DaemonCommand::Op(reply_tx, op)).await.ok();
             Ok(serde_json::to_string(
                 &TcpResponseBuilder::<String>::builder(true)
