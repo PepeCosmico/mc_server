@@ -104,10 +104,14 @@ async fn process_request(
         }
         TcpRequest::Op(op) => {
             let (reply_tx, _reply_rx) = oneshot::channel();
-            tx.send(DaemonCommand::Op(reply_tx, op)).await.ok();
+            tx.send(DaemonCommand::Op(reply_tx, op.clone())).await.ok();
             Ok(serde_json::to_string(
                 &TcpResponseBuilder::<String>::builder(true)
-                    .message("Op".to_string())
+                    .message(if op.op {
+                        "Op".to_string()
+                    } else {
+                        "Deop".to_string()
+                    })
                     .build(),
             )?)
         }

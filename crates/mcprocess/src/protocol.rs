@@ -9,7 +9,7 @@ pub enum TcpRequest {
     Op(Op),
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct TcpResponse<T> {
     pub success: bool,
     pub message: Option<String>,
@@ -52,6 +52,6 @@ impl<T> TcpResponseBuilder<T> {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Op {
-    pub player_name: String,
+    pub player: String,
     pub op: bool,
 }
