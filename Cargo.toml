@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/mc_cli",
+members = ["crates/mccli",
     "crates/mcdaemon",
     "crates/mcprocess"
 ]

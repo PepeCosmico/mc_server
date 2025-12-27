@@ -1,7 +1,7 @@
 use crate::utils::wait_for_state;
 use mcprocess::{config::Config, protocol::Op, server::ServerProcess, state::ServerState};
 use tokio::sync::{mpsc, oneshot};
-use tokio::time::{timeout, Duration};
+use tokio::time::{Duration, timeout};
 
 pub enum DaemonCommand {
     Start(oneshot::Sender<Result<String, String>>),
@@ -85,7 +85,7 @@ pub fn spawn_actor(cfg: Config, mut rx: mpsc::Receiver<DaemonCommand>) {
                     let _ = reply.send(state);
                 }
                 DaemonCommand::Op(reply, op) => {
-                    let res = srv.op(op.op, op.player_name.clone()).await;
+                    let res = srv.op(op.op, op.player.clone()).await;
                     match res {
                         Ok(()) => {
                             let _ = reply.send(Ok(()));
