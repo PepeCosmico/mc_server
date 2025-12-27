@@ -1,9 +1,16 @@
+use std::time::Duration;
+
 use clap::Parser;
 
-use mccli::cli::{Cli, Commands};
-use mccli::commands;
-use mccli::error::Result;
-use tracing::{Level, debug};
+use colored::Colorize;
+use indicatif::{ProgressBar, ProgressStyle};
+use mccli::{
+    cli::{Cli, Commands},
+    commands,
+    config::AppConfig,
+    error::Result,
+};
+use tracing::{Level, debug, error};
 use tracing_subscriber::FmtSubscriber;
 
 #[tokio::main]
@@ -13,7 +20,7 @@ async fn main() -> Result<()> {
     let log_level = if cli.verbose {
         Level::DEBUG
     } else {
-        Level::INFO
+        Level::WARN
     };
 
     let subscriber = FmtSubscriber::builder()
@@ -25,21 +32,24 @@ async fn main() -> Result<()> {
     tracing::subscriber::set_global_default(subscriber)?;
     debug!("Logger initialized in DEBUG mode");
 
+    let cfg = AppConfig::load()?;
+
+    let addr = cfg.get_address();
     match &cli.command {
         Some(Commands::Start) => {
-            commands::start::run("0.0.0.0:8080").await?;
+            commands::start::run(&addr).await?;
         }
         Some(Commands::Stop) => {
-            commands::stop::run("0.0.0.0:8080").await?;
+            commands::stop::run(&addr).await?;
         }
         Some(Commands::Status) => {
-            commands::status::run("0.0.0.0:8080").await?;
+            commands::status::run(&addr).await?;
         }
         Some(Commands::Op { player, op }) => {
-            commands::op::run("0.0.0.0:8080", player.to_string(), *op).await?;
+            commands::op::run(&addr, player.to_string(), *op).await?;
         }
         None => {
-            println!("No se pasó ningún comando. Usa --help");
+            error!("Not a valid command. Use --help")
         }
     }
 
