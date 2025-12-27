@@ -12,4 +12,3 @@ auto_eula = true
 
 [backup]
 path = "./runtime/backups"
-

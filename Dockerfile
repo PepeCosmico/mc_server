@@ -8,8 +8,8 @@ WORKDIR /usr/src/app
 COPY . .
 
 # Compilamos en modo release.
-# Especificamos el binario mcdaemon explícitamente.
-RUN cargo build --release -p mcdaemon
+# Especificamos el binario mc_daemon explícitamente.
+RUN cargo build --release -p mc_daemon
 
 # --- ETAPA 2: RUNTIME (Entorno de Ejecución con Java) ---
 # Usamos Eclipse Temurin (Java oficial y ligero).

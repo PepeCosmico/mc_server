@@ -1,4 +1,4 @@
-use mcprocess::state::ServerState;
+use mc_process::state::ServerState;
 use tokio::sync::watch::Receiver;
 
 pub async fn wait_for_state(

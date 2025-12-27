@@ -1,4 +1,4 @@
-use mcprocess::config::Config;
+use mc_process::config::Config;
 use std::env;
 use tokio::sync::mpsc;
 

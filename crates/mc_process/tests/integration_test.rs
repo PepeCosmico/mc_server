@@ -1,4 +1,4 @@
-use mcprocess::{
+use mc_process::{
     config::{BackupCfg, Config, JavaCfg, ServerCfg},
     server::ServerProcess,
     state::ServerState,
@@ -78,8 +78,8 @@ async fn wait_for_state(srv: &ServerProcess, target: ServerState) -> anyhow::Res
             }
         }
     })
-    .await
-    .map_err(|_| anyhow::anyhow!("Timeout esperando estado {:?}", target))?
+        .await
+        .map_err(|_| anyhow::anyhow!("Timeout esperando estado {:?}", target))?
 }
 
 // --- TESTS ---
@@ -179,7 +179,7 @@ async fn test_crash_detection() -> anyhow::Result<()> {
             }
         }
     })
-    .await?;
+        .await?;
 
     let final_s = *srv.state().borrow();
     assert!(matches!(

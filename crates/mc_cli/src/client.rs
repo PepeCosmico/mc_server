@@ -1,7 +1,7 @@
 use crate::error::Result;
 use futures::{SinkExt, StreamExt};
-use mcprocess::protocol::TcpResponse;
-use serde::{Serialize, de::DeserializeOwned};
+use mc_process::protocol::TcpResponse;
+use serde::{de::DeserializeOwned, Serialize};
 use tokio::net::TcpStream;
 use tokio_util::codec::{Framed, LinesCodec};
 use tracing::{debug, error, info, warn};

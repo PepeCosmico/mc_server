@@ -1,5 +1,5 @@
 use crate::actor::DaemonCommand;
-use mcprocess::protocol::{TcpRequest, TcpResponseBuilder};
+use mc_process::protocol::{TcpRequest, TcpResponseBuilder};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, oneshot};

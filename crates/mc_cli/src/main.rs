@@ -4,13 +4,13 @@ use clap::Parser;
 
 use colored::Colorize;
 use indicatif::{ProgressBar, ProgressStyle};
-use mccli::{
+use mc_cli::{
     cli::{Cli, Commands},
     commands,
     config::AppConfig,
     error::Result,
 };
-use tracing::{Level, debug, error};
+use tracing::{debug, error, Level};
 use tracing_subscriber::FmtSubscriber;
 
 #[tokio::main]

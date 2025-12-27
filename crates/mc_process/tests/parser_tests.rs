@@ -1,4 +1,4 @@
-use mcprocess::logs::{McLogParser, ServerEvent};
+use mc_process::logs::{McLogParser, ServerEvent};
 
 #[test]
 fn test_detect_server_ready() {
