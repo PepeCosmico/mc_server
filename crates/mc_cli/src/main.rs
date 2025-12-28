@@ -1,16 +1,12 @@
-use std::time::Duration;
-
 use clap::Parser;
 
-use colored::Colorize;
-use indicatif::{ProgressBar, ProgressStyle};
 use mc_cli::{
     cli::{Cli, Commands},
     commands,
-    config::AppConfig,
     error::Result,
 };
-use tracing::{debug, error, Level};
+use mc_config::McConfig;
+use tracing::{Level, debug, error};
 use tracing_subscriber::FmtSubscriber;
 
 #[tokio::main]
@@ -32,9 +28,9 @@ async fn main() -> Result<()> {
     tracing::subscriber::set_global_default(subscriber)?;
     debug!("Logger initialized in DEBUG mode");
 
-    let cfg = AppConfig::load()?;
+    let cfg = McConfig::new()?;
 
-    let addr = cfg.get_address();
+    let addr = cfg.client.get_addr();
     match &cli.command {
         Some(Commands::Start) => {
             commands::start::run(&addr).await?;

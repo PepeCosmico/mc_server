@@ -812,6 +812,7 @@ dependencies = [
  "config 0.14.1",
  "futures",
  "indicatif",
+ "mc_config",
  "mc_process",
  "serde",
  "serde_json",
@@ -838,6 +839,7 @@ name = "mc_daemon"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "mc_config",
  "mc_process",
  "serde",
  "serde_json",
@@ -852,6 +854,7 @@ dependencies = [
  "chrono",
  "dunce",
  "flate2",
+ "mc_config",
  "regex",
  "serde",
  "serde_json",

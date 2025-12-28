@@ -1,5 +1,5 @@
 [java]
-path = "/usr/bin/java"
+path = "java"
 xms = "512M"
 xmx = "1G"
 extra_args = []
@@ -12,3 +12,7 @@ auto_eula = true
 
 [backup]
 path = "./runtime/backups"
+
+[client]
+host = "127.0.0.1"
+port = 7110

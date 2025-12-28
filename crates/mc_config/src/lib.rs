@@ -35,7 +35,18 @@ pub struct McConfig {
     pub backup: BackupCfg,
 
     /// Configuration for the command line interface or remote connection.
-    pub cli: CliConfig,
+    pub client: ClientCfg,
+}
+
+impl Default for McConfig {
+    fn default() -> Self {
+        Self {
+            java: JavaCfg::default(),
+            server: ServerCfg::default(),
+            backup: BackupCfg::default(),
+            client: ClientCfg::default(),
+        }
+    }
 }
 
 /// Java execution configuration options.
@@ -106,19 +117,25 @@ impl Default for BackupCfg {
 
 /// Network configuration for the internal CLI/API.
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct CliConfig {
+pub struct ClientCfg {
     /// Host address to bind to (e.g., "127.0.0.1" or "0.0.0.0").
     pub host: String,
     /// Listening port.
     pub port: u16,
 }
 
-impl Default for CliConfig {
+impl Default for ClientCfg {
     fn default() -> Self {
         Self {
             host: "127.0.0.1".to_string(),
             port: 7110,
         }
+    }
+}
+
+impl ClientCfg {
+    pub fn get_addr(&self) -> String {
+        format!("{}:{}", self.host, self.port)
     }
 }
 
@@ -133,7 +150,7 @@ impl McConfig {
     ///    - Windows: `%APPDATA%\pllinas\mc_server\config.{toml|...}`
     ///    - macOS: `~/Library/Application Support/pllinas.mc_server/config.{toml|...}`
     /// 4. **Run Mode**: Based on the `RUN_MODE` environment variable (default: "develop").
-    ///    - Loads `configs/{RUN_MODE}.{toml|...}`.
+    ///    - Loads `config/{RUN_MODE}.{toml|...}`.
     /// 5. **Local**: Loads `config/local.{toml|...}` (usually git-ignored).
     /// 6. **Environment Variables**: Overrides values using the `APP` prefix.
     ///    - E.g., `APP__SERVER__PORT` overrides `server.port`.
@@ -143,7 +160,7 @@ impl McConfig {
     /// or incorrect data types.
     pub fn new() -> Result<Self> {
         dotenvy::dotenv().ok();
-        let run_mode = std::env::var("RUN_MODE").unwrap_or_else(|_| "develop".to_string());
+        let run_mode = std::env::var("RUN_MODE").unwrap_or_else(|_| "dev".to_string());
 
         // Define standard OS paths
         // Linux: ~/.config/mc_server
@@ -156,7 +173,7 @@ impl McConfig {
             java: JavaCfg::default(),
             server: ServerCfg::default(),
             backup: BackupCfg::default(),
-            cli: CliConfig::default(),
+            client: ClientCfg::default(),
         })
         .map_err(Error::from)?;
 

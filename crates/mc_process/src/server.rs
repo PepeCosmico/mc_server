@@ -1,10 +1,10 @@
-use crate::config::Config;
 use crate::error::{Error, Result};
 use crate::logs::{McLog, McLogParser, ServerEvent};
 use crate::state::ServerState;
 use chrono::Local;
-use flate2::write::GzEncoder;
 use flate2::Compression;
+use flate2::write::GzEncoder;
+use mc_config::McConfig;
 use std::fs::File;
 use std::process::Stdio;
 use std::{
@@ -18,12 +18,12 @@ use tokio::{
     io::AsyncWriteExt,
     process::ChildStdin,
     select,
-    sync::{broadcast, watch, Notify},
-    time::{timeout, Duration},
+    sync::{Notify, broadcast, watch},
+    time::{Duration, timeout},
 };
 
 pub struct ServerProcess {
-    cfg: Config,
+    cfg: McConfig,
     system: System,
     stdin: Option<ChildStdin>,
     state_tx: watch::Sender<ServerState>,
@@ -34,7 +34,7 @@ pub struct ServerProcess {
 }
 
 impl ServerProcess {
-    pub fn new(cfg: Config) -> Self {
+    pub fn new(cfg: McConfig) -> Self {
         let (state_tx, _state_rx) = watch::channel(ServerState::Stopped);
         let (log_tx, _log_rx) = broadcast::channel(256);
         Self {

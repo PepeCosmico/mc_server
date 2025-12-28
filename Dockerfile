@@ -26,10 +26,10 @@ RUN mkdir -p server backups
 COPY --from=builder /usr/src/app/target/release/mc_daemon /app/mc_daemon
 
 # Copiamos el archivo de configuración (asegúrate de tener uno de producción)
-COPY configs/prod.toml /app/prod.toml
+COPY config/prod.toml /app/config/prod.toml
 
 # Exponemos el puerto del Daemon (TCP) y el de Minecraft (25565)
-EXPOSE 8080
+EXPOSE 7110
 EXPOSE 25565
 
 # Ejecutamos el Daemon

@@ -11,3 +11,4 @@ serde_json = "1.0"
 
 # IMPORTANTE: Así vinculamos tu librería local
 mc_process = { path = "../mc_process" }
+mc_config = { path = "../mc_config" }

@@ -17,5 +17,7 @@ dunce = "1.0"
 regex = "1.12"
 sysinfo = "0.37.2"
 
+mc_config = { path = "../mc_config" }
+
 [dev-dependencies]
 tempfile = "3"

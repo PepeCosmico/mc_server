@@ -1,5 +1,4 @@
-use mc_process::config::Config;
-use std::env;
+use mc_config::McConfig;
 use tokio::sync::mpsc;
 
 use crate::actor::DaemonCommand;
@@ -10,12 +9,11 @@ mod utils;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let config_path = env::var("MC_CONFIG").unwrap_or_else(|_| "configs/dev.toml".to_string());
-    println!("Using config file: {}", config_path);
-    let cfg = Config::load(&config_path)?;
+    let cfg = McConfig::new()?;
     let (tx, rx) = mpsc::channel::<DaemonCommand>(32);
+    let addr = cfg.client.get_addr();
     actor::spawn_actor(cfg, rx);
-    tcp::server_loop("0.0.0.0:8080", tx).await?;
+    tcp::server_loop(&addr, tx).await?;
 
     Ok(())
 }

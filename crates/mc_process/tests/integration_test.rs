@@ -1,63 +1,22 @@
+use mc_config::McConfig;
 use mc_process::{
-    config::{BackupCfg, Config, JavaCfg, ServerCfg},
     server::ServerProcess,
     state::ServerState,
 };
+use std::path::PathBuf;
 use std::{fs::File, time::Duration};
 use tempfile::tempdir;
 use tokio::time::timeout;
-
 // --- Helpers ---
 
-fn get_mock_binary_path() -> String {
-    let bin_name = if cfg!(windows) {
-        "mock_java.exe"
-    } else {
-        "mock_java"
-    };
-    let mut current_dir = std::env::current_dir().expect("Failed to get current dir");
 
-    for _ in 0..4 {
-        let candidate = current_dir.join("target").join("debug").join(bin_name);
-        if candidate.exists() {
-            return candidate
-                .canonicalize()
-                .unwrap()
-                .to_str()
-                .unwrap()
-                .to_string();
-        }
+fn create_full_config(work_dir: &str, backup_dir: &str) -> McConfig {
+    let mut cfg = McConfig::default();
 
-        if !current_dir.pop() {
-            break;
-        }
-    }
+    cfg.server.working_dir = PathBuf::from(work_dir);
+    cfg.backup.path = PathBuf::from(backup_dir);
 
-    panic!(
-        "ERROR: No se pudo encontrar el binario '{}'. \n\
-         Asegúrate de haber compilado el proyecto con 'cargo build' o 'cargo test' antes de ejecutar.",
-        bin_name
-    );
-}
-
-fn create_full_config(work_dir: &str, backup_dir: &str) -> Config {
-    Config {
-        java: JavaCfg {
-            path: get_mock_binary_path(),
-            xms: "1M".to_string(),
-            xmx: "1M".to_string(),
-            extra_args: vec![],
-        },
-        server: ServerCfg {
-            working_dir: work_dir.to_string(),
-            jar: "server.jar".to_string(),
-            nogui: true,
-            auto_eula: true,
-        },
-        backup: BackupCfg {
-            path: backup_dir.to_string(),
-        },
-    }
+    cfg
 }
 
 // MEJORA: Este helper ahora usa timeout y suscripción a eventos

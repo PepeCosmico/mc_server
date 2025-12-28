@@ -5,7 +5,7 @@ pub enum Error {
     #[error("UX Template error")]
     ErrorPBTemplate(#[from] indicatif::style::TemplateError),
     #[error("Error trying to load config file")]
-    ErrorLoadingConfigFile(#[from] config::ConfigError),
+    ErrorLoadingConfigFile(#[from] mc_config::error::Error),
     #[error("Io Error connecting to daemon {0}")]
     ErrorIoConnectingToDaemon(#[from] std::io::Error),
     #[error("Timeout error connecting to daemon")]

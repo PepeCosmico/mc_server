@@ -1,7 +1,8 @@
 use crate::utils::wait_for_state;
-use mc_process::{config::Config, protocol::Op, server::ServerProcess, state::ServerState};
+use mc_config::McConfig;
+use mc_process::{protocol::Op, server::ServerProcess, state::ServerState};
 use tokio::sync::{mpsc, oneshot};
-use tokio::time::{timeout, Duration};
+use tokio::time::{Duration, timeout};
 
 pub enum DaemonCommand {
     Start(oneshot::Sender<Result<String, String>>),
@@ -10,7 +11,7 @@ pub enum DaemonCommand {
     Op(oneshot::Sender<Result<(), String>>, Op),
 }
 
-pub fn spawn_actor(cfg: Config, mut rx: mpsc::Receiver<DaemonCommand>) {
+pub fn spawn_actor(cfg: McConfig, mut rx: mpsc::Receiver<DaemonCommand>) {
     tokio::spawn(async move {
         println!("🤖 Actor iniciado. Listo para recibir comandos.");
         let mut srv = ServerProcess::new(cfg);
@@ -30,7 +31,7 @@ pub fn spawn_actor(cfg: Config, mut rx: mpsc::Receiver<DaemonCommand>) {
                                     .await
                                     .map(|_| "Server Running");
                             })
-                                .await;
+                            .await;
 
                             let final_response = match wait_result {
                                 Ok(Ok(msg)) => Ok(msg.to_string()),
@@ -64,7 +65,7 @@ pub fn spawn_actor(cfg: Config, mut rx: mpsc::Receiver<DaemonCommand>) {
                                         .await
                                         .map(|_| "Server Stopped");
                                 })
-                                    .await;
+                                .await;
 
                                 let final_response = match wait_result {
                                     Ok(Ok(msg)) => Ok(msg.to_string()),
