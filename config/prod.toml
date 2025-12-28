@@ -1,0 +1,18 @@
+[java]
+path = "java"
+xms = "2G"
+xmx = "4G"
+extra_args = ["-XX:+UseG1GC"]
+
+[server]
+working_dir = "/app/server"
+jar = "server.jar"
+nogui = true
+auto_eula = true
+
+[backup]
+path = "/app/backups"
+
+[client]
+host = "0.0.0.0"
+port = 7110
