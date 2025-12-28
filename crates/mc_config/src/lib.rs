@@ -3,11 +3,11 @@
 //! This module implements a **layered configuration architecture** for the Minecraft server management.
 //!
 //! **Load Priority (from lowest to highest):**
-//! 1. File `configs/default` (Base).
-//! 2. OS Configuration Directory (e.g., `~/.config/mc_server/config.toml`).
-//! 3. Environment-specific file (e.g., `configs/production`).
-//! 4. Local override file `config/local` (git-ignored).
-//! 5. Environment Variables (Prefix `APP__`).
+//! 1. **Internal Defaults** (Hardcoded values in Rust `impl Default`).
+//! 2. **OS Configuration Directory** (e.g., `~/.config/mc_server/config.toml`).
+//! 3. **Environment-specific file** (e.g., `config/dev.toml` or `config/prod.toml`).
+//! 4. **Local override file** `config/local.toml` (git-ignored, for personal overrides).
+//! 5. **Environment Variables** (Prefix `APP__`, e.g., `APP__SERVER__PORT`).
 
 use crate::error::{Error, Result};
 use config::{Config, Environment, File};
@@ -32,9 +32,11 @@ pub struct McConfig {
     pub server: ServerCfg,
 
     /// Backup system configuration.
+    #[serde(default)] // Added serde default here for consistency
     pub backup: BackupCfg,
 
     /// Configuration for the command line interface or remote connection.
+    #[serde(default)] // Added serde default here for consistency
     pub client: ClientCfg,
 }
 
@@ -78,6 +80,7 @@ impl Default for JavaCfg {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ServerCfg {
     /// Root directory where server files are hosted.
+    /// Defaults to `runtime/server`.
     pub working_dir: PathBuf,
     /// Name of the server .jar file (e.g., "server.jar").
     pub jar: PathBuf,
@@ -104,6 +107,7 @@ impl Default for ServerCfg {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct BackupCfg {
     /// Path where compressed backup files will be stored.
+    /// Defaults to `runtime/backups`.
     pub path: PathBuf,
 }
 
@@ -120,7 +124,7 @@ impl Default for BackupCfg {
 pub struct ClientCfg {
     /// Host address to bind to (e.g., "127.0.0.1" or "0.0.0.0").
     pub host: String,
-    /// Listening port.
+    /// Listening port. Defaults to 7110.
     pub port: u16,
 }
 
@@ -134,6 +138,7 @@ impl Default for ClientCfg {
 }
 
 impl ClientCfg {
+    /// Returns the complete socket address as a string (e.g., "127.0.0.1:7110").
     pub fn get_addr(&self) -> String {
         format!("{}:{}", self.host, self.port)
     }
@@ -143,14 +148,14 @@ impl McConfig {
     /// Initializes and loads the configuration by merging multiple sources.
     ///
     /// # Load Strategy
-    /// 1. **Dotenv**: Loads variables from `.env` if it exists.
-    /// 2. **Base**: Loads `configs/default.{toml|yaml|json}`.
+    /// 1. **Internal Defaults**: Loads hardcoded values from `impl Default`.
+    /// 2. **Dotenv**: Loads variables from `.env` if it exists.
     /// 3. **System**: Searches for configuration in the standard user directory.
     ///    - Linux: `~/.config/mc_server/config.{toml|...}`
     ///    - Windows: `%APPDATA%\pllinas\mc_server\config.{toml|...}`
     ///    - macOS: `~/Library/Application Support/pllinas.mc_server/config.{toml|...}`
-    /// 4. **Run Mode**: Based on the `RUN_MODE` environment variable (default: "develop").
-    ///    - Loads `config/{RUN_MODE}.{toml|...}`.
+    /// 4. **Run Mode**: Based on the `RUN_MODE` environment variable (default: "dev").
+    ///    - Loads `config/{RUN_MODE}.{toml|...}` (e.g., `config/dev.toml`).
     /// 5. **Local**: Loads `config/local.{toml|...}` (usually git-ignored).
     /// 6. **Environment Variables**: Overrides values using the `APP` prefix.
     ///    - E.g., `APP__SERVER__PORT` overrides `server.port`.
@@ -169,24 +174,23 @@ impl McConfig {
 
         let mut builder = Config::builder();
 
-        let default_config = Config::try_from(&McConfig {
-            java: JavaCfg::default(),
-            server: ServerCfg::default(),
-            backup: BackupCfg::default(),
-            client: ClientCfg::default(),
-        })
-        .map_err(Error::from)?;
+        // Layer 1: Internal Defaults (Hardcoded)
+        let default_config = Config::try_from(&McConfig::default()).map_err(Error::from)?;
 
         builder = builder.add_source(default_config);
 
+        // Layer 2: OS System Configuration
         if let Some(proj_dirs) = project_dir {
             let config_path = proj_dirs.config_dir().join("config");
             builder = builder.add_source(File::from(config_path).required(false));
         };
 
         builder = builder
+            // Layer 3: Run Mode (dev, prod, etc.)
             .add_source(File::with_name(&format!("config/{}", run_mode)).required(false))
+            // Layer 4: Local Overrides
             .add_source(File::with_name("config/local").required(false))
+            // Layer 5: Environment Variables
             .add_source(Environment::with_prefix("APP").separator("__"));
 
         let s = builder.build()?;
