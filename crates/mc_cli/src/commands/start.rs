@@ -1,10 +1,16 @@
-use crate::{client::TcpClient, error::Result};
+use crate::{client::TcpClient, error::Result, utils::run_task};
 use mc_process::protocol::{TcpRequest, TcpResponse};
 
 pub async fn run(address: &str) -> Result<()> {
     let client = TcpClient::new(address);
 
-    let response: TcpResponse<String> = client.send_request(TcpRequest::Start).await?;
+    let response: TcpResponse<String> = run_task(
+        "Starting server...",
+        "Server started successfully",
+        "Error starting server",
+        client.send_request(TcpRequest::Start),
+    )
+    .await?;
 
     if response.success {
         if let Some(msg) = response.message {

@@ -14,6 +14,7 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     let log_level = if cli.verbose {
+        debug!("Logger initialized in DEBUG mode");
         Level::DEBUG
     } else {
         Level::WARN
@@ -26,7 +27,6 @@ async fn main() -> Result<()> {
         .finish();
 
     tracing::subscriber::set_global_default(subscriber)?;
-    debug!("Logger initialized in DEBUG mode");
 
     let cfg = McConfig::new()?;
 
