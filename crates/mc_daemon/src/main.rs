@@ -1,11 +1,8 @@
 use mc_config::McConfig;
 use tokio::sync::mpsc;
 
-use crate::actor::DaemonCommand;
+use mc_daemon::{actor, actor::DaemonCommand, tcp};
 
-mod actor;
-mod tcp;
-mod utils;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
