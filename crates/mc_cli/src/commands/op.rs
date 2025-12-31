@@ -1,5 +1,5 @@
 use crate::{client::TcpClient, error::Result};
-use mc_process::protocol::{Op, TcpRequest, TcpResponse};
+use mc_daemon::protocol::{Op, TcpRequest, TcpResponse};
 
 pub async fn run(address: &str, player: String, op: bool) -> Result<()> {
     let client = TcpClient::new(address);
