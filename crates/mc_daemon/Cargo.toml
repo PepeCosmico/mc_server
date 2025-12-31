@@ -4,11 +4,24 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+# Tokio
 tokio = { version = "1", features = ["full"] }
-anyhow = "1.0"
+tokio-util = { version = "0.7", features = ["codec"] }
+
+# Async
+futures = "0.3"
+
+# Logs
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+# Serde
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
-# IMPORTANTE: Así vinculamos tu librería local
+# Errors
+anyhow = "1.0"
+
+# McServer
 mc_process = { path = "../mc_process" }
 mc_config = { path = "../mc_config" }

@@ -813,7 +813,7 @@ dependencies = [
  "futures",
  "indicatif",
  "mc_config",
- "mc_process",
+ "mc_daemon",
  "serde",
  "serde_json",
  "thiserror",
@@ -839,11 +839,15 @@ name = "mc_daemon"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "futures",
  "mc_config",
  "mc_process",
  "serde",
  "serde_json",
  "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

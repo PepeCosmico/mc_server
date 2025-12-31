@@ -1,64 +1,74 @@
 use crate::actor::DaemonCommand;
-use mc_process::protocol::{TcpRequest, TcpResponseBuilder};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use crate::protocol::{TcpRequest, TcpResponseBuilder};
+use futures::{SinkExt, StreamExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, oneshot};
+use tokio_util::codec::{Framed, LinesCodec};
 
 pub async fn server_loop(addr: &str, tx: mpsc::Sender<DaemonCommand>) -> anyhow::Result<()> {
     let listener = TcpListener::bind(addr).await?;
-    println!("🌍 Daemon TCP escuchando en {}", addr);
+    println!("Daemon TCP escuchando en {}", addr);
 
     loop {
-        let (socket, addr) = listener.accept().await?;
-        println!("🔌 Nueva conexión: {}", addr);
-        let tx_clone = tx.clone();
+        tokio::select! {
+            result = listener.accept() => {
+                match result {
+                    Ok((socket, addr)) => {
+                        println!("Nueva conexión: {}", addr);
+                        let tx_clone = tx.clone();
 
-        tokio::spawn(async move {
-            if let Err(e) = handle_client(socket, tx_clone).await {
-                eprintln!("⚠️ Error cliente {}: {}", addr, e);
+                        tokio::spawn(async move {
+                            if let Err(e) = handle_client(socket, tx_clone).await {
+                                eprintln!("Error cliente {}: {}", addr, e);
+                            }
+                        });
+                    }
+                    Err(e) => {
+                        println!("Error accepting connection: {}", e);
+                    }
+                }
             }
-        });
-    }
-}
-
-async fn handle_client(
-    mut socket: TcpStream,
-    tx: mpsc::Sender<DaemonCommand>,
-) -> anyhow::Result<()> {
-    let (reader, mut writer) = socket.split();
-    let mut buf_reader = BufReader::new(reader);
-    let mut line = String::new();
-
-    loop {
-        line.clear();
-        let bytes_read = buf_reader.read_line(&mut line).await?;
-        if bytes_read == 0 {
-            break;
-        }
-
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-
-        let req: TcpRequest = match serde_json::from_str(trimmed) {
-            Ok(val) => val,
-            Err(e) => {
-                let err_json = serde_json::to_string(
-                    &TcpResponseBuilder::<()>::builder(false)
-                        .message(format!("JSON inválido: {}", e))
-                        .build(),
-                )?;
-                writer.write_all(err_json.as_bytes()).await?;
-                writer.write_all(b"\n").await?;
-                continue;
+            _ = tokio::signal::ctrl_c() => {
+                println!("Stopping Daemon...");
+                break;
             }
         };
+    }
+    Ok(())
+}
 
-        let response_json = process_request(req, &tx).await?;
+async fn handle_client(socket: TcpStream, tx: mpsc::Sender<DaemonCommand>) -> anyhow::Result<()> {
+    let mut framed = Framed::new(socket, LinesCodec::new());
 
-        writer.write_all(response_json.as_bytes()).await?;
-        writer.write_all(b"\n").await?;
+    while let Some(result) = framed.next().await {
+        match result {
+            Ok(line) => {
+                let trimmed = line.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+
+                let req: TcpRequest = match serde_json::from_str(trimmed) {
+                    Ok(val) => val,
+                    Err(e) => {
+                        let err_json = serde_json::to_string(
+                            &TcpResponseBuilder::<()>::builder(false)
+                                .message(format!("JSON inválido: {}", e))
+                                .build(),
+                        )?;
+                        framed.send(err_json).await?;
+                        continue;
+                    }
+                };
+
+                let response_json = process_request(req, &tx).await?;
+
+                framed.send(response_json).await?;
+            }
+            Err(e) => {
+                return Err(e.into());
+            }
+        }
     }
     Ok(())
 }

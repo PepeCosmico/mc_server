@@ -1,6 +1,6 @@
 use crate::error::Result;
 use futures::{SinkExt, StreamExt};
-use mc_process::protocol::TcpResponse;
+use mc_daemon::protocol::TcpResponse;
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::net::TcpStream;
 use tokio_util::codec::{Framed, LinesCodec};
