@@ -334,12 +334,10 @@ impl ServerProcess {
             let mut out_reader = BufReader::new(stdout).lines();
             let mut err_reader = BufReader::new(stderr).lines();
 
-            // Initial State
-            state_tx.send_replace(ServerState::Starting);
-
             loop {
                 select! {
                     Ok(Some(line)) = out_reader.next_line() => {
+                        println!("{}", line);
                         Self::handle_stdout_line(line, &log_tx, &state_tx,&version_tx, &save_notify);
                     }
                     Ok(Some(line)) = err_reader.next_line() => {

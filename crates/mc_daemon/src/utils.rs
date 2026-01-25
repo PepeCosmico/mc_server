@@ -13,15 +13,6 @@ pub async fn wait_for_state(
         }
 
         match target {
-            ServerState::Running => {
-                if matches!(current, ServerState::Stopped | ServerState::Crashed) {
-                    return Err(format!(
-                        "El servidor se detuvo inesperadamente (Estado: {:?})",
-                        current
-                    ));
-                }
-            }
-
             ServerState::Stopped => {
                 if current == ServerState::Crashed {
                     return Ok(());

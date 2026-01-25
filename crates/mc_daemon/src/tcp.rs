@@ -86,6 +86,7 @@ async fn process_request(
             ))?)
         }
         TcpRequest::Start => {
+            println!("Start command");
             let (reply_tx, reply_rx) = oneshot::channel();
             tx.send(DaemonCommand::Start(reply_tx)).await.ok();
             match reply_rx.await? {

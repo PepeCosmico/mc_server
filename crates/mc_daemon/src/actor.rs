@@ -43,11 +43,12 @@ async fn start(
             let address = cfg.client.get_addr();
 
             tokio::spawn(async move {
-                println!("Hola");
                 let wait_result = timeout(Duration::from_secs(120), async {
                     return wait_for_state(state_rx, ServerState::Running).await;
                 })
                 .await;
+
+                println!("asjdklc");
 
                 let version = match version_rx.borrow().clone() {
                     Some(ver) => ver.mc_version,
