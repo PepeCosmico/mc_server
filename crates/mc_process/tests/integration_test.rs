@@ -1,14 +1,10 @@
 use mc_config::McConfig;
-use mc_process::{
-    server::ServerProcess,
-    state::ServerState,
-};
+use mc_process::{server::ServerProcess, state::ServerState};
 use std::path::PathBuf;
 use std::{fs::File, time::Duration};
 use tempfile::tempdir;
 use tokio::time::timeout;
 // --- Helpers ---
-
 
 fn create_full_config(work_dir: &str, backup_dir: &str) -> McConfig {
     let mut cfg = McConfig::default();
@@ -37,11 +33,45 @@ async fn wait_for_state(srv: &ServerProcess, target: ServerState) -> anyhow::Res
             }
         }
     })
-        .await
-        .map_err(|_| anyhow::anyhow!("Timeout esperando estado {:?}", target))?
+    .await
+    .map_err(|_| anyhow::anyhow!("Timeout esperando estado {:?}", target))?
 }
 
 // --- TESTS ---
+
+#[tokio::test]
+async fn test_start_version_detection() -> anyhow::Result<()> {
+    // --- SETUP ---
+    let temp_root = tempdir()?;
+    let work_path = temp_root.path().join("server");
+    let backup_path = temp_root.path().join("backups");
+
+    // Creamos directorios
+    std::fs::create_dir_all(&work_path)?;
+    std::fs::create_dir_all(&backup_path)?; // Importante crear carpeta de backups
+
+    // Archivos dummy para que el zip tenga contenido
+    File::create(work_path.join("server.jar"))?;
+    File::create(work_path.join("world_data.txt"))?;
+
+    // CONFIGURACIÓN USANDO EL MOCK BINARIO
+    let cfg = create_full_config(work_path.to_str().unwrap(), backup_path.to_str().unwrap());
+
+    let mut srv = ServerProcess::new(cfg);
+
+    // --- 1. START ---
+    srv.start().await?;
+    wait_for_state(&srv, ServerState::Running).await?;
+
+    println!("✅ Server Started");
+
+    assert!(srv.version().borrow().is_some());
+    assert_eq!(
+        srv.version().borrow().as_ref().unwrap().clone().mc_version,
+        String::from("1.21.4")
+    );
+    Ok(())
+}
 
 #[tokio::test]
 async fn test_full_lifecycle_and_backup() -> anyhow::Result<()> {
@@ -66,6 +96,7 @@ async fn test_full_lifecycle_and_backup() -> anyhow::Result<()> {
     // --- 1. START ---
     srv.start().await?;
     wait_for_state(&srv, ServerState::Running).await?;
+
     println!("✅ Server Started");
 
     // --- 2. BACKUP (Con protección de Timeout) ---
@@ -138,7 +169,7 @@ async fn test_crash_detection() -> anyhow::Result<()> {
             }
         }
     })
-        .await?;
+    .await?;
 
     let final_s = *srv.state().borrow();
     assert!(matches!(

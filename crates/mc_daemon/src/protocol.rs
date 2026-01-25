@@ -1,3 +1,4 @@
+use mc_process::state::ServerState;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -9,49 +10,65 @@ pub enum TcpRequest {
     Op(Op),
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct TcpResponse<T> {
-    pub success: bool,
-    pub message: Option<String>,
-    pub data: Option<T>,
-}
-
-pub struct TcpResponseBuilder<T> {
-    success: bool,
-    message: Option<String>,
-    data: Option<T>,
-}
-
-impl<T> TcpResponseBuilder<T> {
-    pub fn builder(success: bool) -> Self {
-        Self {
-            success,
-            message: None,
-            data: None,
-        }
-    }
-
-    pub fn message(mut self, message: String) -> Self {
-        self.message = Some(message);
-        self
-    }
-
-    pub fn data(mut self, data: T) -> Self {
-        self.data = Some(data);
-        self
-    }
-
-    pub fn build(self) -> TcpResponse<T> {
-        TcpResponse {
-            success: self.success,
-            message: self.message,
-            data: self.data,
-        }
-    }
-}
-
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Op {
     pub player: String,
     pub op: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TcpResponse {
+    pub success: bool,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+
+    #[serde(skip_serializing_if = "is_payload_none")]
+    pub data: ResponsePayload,
+}
+
+impl TcpResponse {
+    pub fn ok() -> Self {
+        Self {
+            success: true,
+            error: None,
+            data: ResponsePayload::None,
+        }
+    }
+
+    pub fn ok_with(payload: ResponsePayload) -> Self {
+        Self {
+            success: true,
+            error: None,
+            data: payload,
+        }
+    }
+
+    pub fn error(msg: &str) -> Self {
+        Self {
+            success: false,
+            error: Some(msg.to_string()),
+            data: ResponsePayload::None,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ResponsePayload {
+    Status(ServerState),
+    Start(StartData),
+    OpResult(Op),
+    Simple(String),
+    None,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct StartData {
+    pub version: String,
+    pub address: String,
+}
+
+fn is_payload_none(payload: &ResponsePayload) -> bool {
+    matches!(payload, ResponsePayload::None)
 }

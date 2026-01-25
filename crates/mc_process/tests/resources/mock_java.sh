@@ -3,6 +3,7 @@
 
 # 1. Simular arranque
 # Importante: El formato de fecha y log debe coincidir con tu Regex ^\[(\d{2}:\d{2}:\d{2})\] \[([^\]]+)\]: (.*)$
+echo "[10:00:00] [main/INFO]: Loading Minecraft 1.21.4 with Fabric Loader 0.17.3"
 echo "[10:00:00] [Server thread/INFO]: Loading libraries..."
 sleep 0.1
 echo "[10:00:05] [Server thread/INFO]: Done (1.0s)! For help, type \"help\""

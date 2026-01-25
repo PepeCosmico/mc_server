@@ -1,6 +1,6 @@
 use crate::error::{Error, Result};
 use crate::logs::{McLog, McLogParser, ServerEvent};
-use crate::state::ServerState;
+use crate::state::{McVersion, ServerState};
 use chrono::Local;
 use flate2::Compression;
 use flate2::write::GzEncoder;
@@ -22,11 +22,13 @@ use tokio::{
     time::{Duration, timeout},
 };
 
+#[derive(Debug)]
 pub struct ServerProcess {
     cfg: McConfig,
     system: System,
     stdin: Option<ChildStdin>,
     state_tx: watch::Sender<ServerState>,
+    version_tx: watch::Sender<Option<McVersion>>,
     log_tx: broadcast::Sender<String>,
     process_id: Option<u32>,
     saved_signal: Arc<Notify>,
@@ -36,12 +38,14 @@ pub struct ServerProcess {
 impl ServerProcess {
     pub fn new(cfg: McConfig) -> Self {
         let (state_tx, _state_rx) = watch::channel(ServerState::Stopped);
+        let (version_tx, _version_rx) = watch::channel(None);
         let (log_tx, _log_rx) = broadcast::channel(256);
         Self {
             cfg,
             system: System::new(),
             stdin: None,
             state_tx,
+            version_tx,
             log_tx,
             process_id: None,
             saved_signal: Arc::new(Notify::new()),
@@ -52,6 +56,11 @@ impl ServerProcess {
     /// Subscribe to state changes.
     pub fn state(&self) -> watch::Receiver<ServerState> {
         self.state_tx.subscribe()
+    }
+
+    /// Subscribe to version changes.
+    pub fn version(&self) -> watch::Receiver<Option<McVersion>> {
+        self.version_tx.subscribe()
     }
 
     /// Subscribe to log lines (stdout & stderr).
@@ -81,7 +90,6 @@ impl ServerProcess {
             return Ok(());
         }
 
-        self.state_tx.send_replace(ServerState::Starting);
         self.prepare().await?;
 
         let (working_dir, jar_path) = self.resolve_paths().await?;
@@ -112,8 +120,11 @@ impl ServerProcess {
 
     /// Send '/op player_name' to server while it is running.
     pub async fn op(&mut self, op: bool, player_name: String) -> Result<()> {
-        if !self.is_running() {
-            return Err(Error::WriteWhileNotRunningError);
+        if player_name.contains(char::is_whitespace) {
+            return Err(Error::WriteStdinFailed(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Player name cannot contain whitespace",
+            )));
         }
 
         let action = match op {
@@ -132,9 +143,11 @@ impl ServerProcess {
             return Err(Error::WriteWhileNotRunningError);
         }
 
+        let clean_cmd = cmd.replace('\n', "");
+
         if let Some(stdin) = &mut self.stdin {
             stdin
-                .write_all(cmd.as_bytes())
+                .write_all(clean_cmd.as_bytes())
                 .await
                 .map_err(Error::WriteStdinFailed)?;
             stdin
@@ -221,7 +234,7 @@ impl ServerProcess {
     fn is_running(&self) -> bool {
         matches!(
             *self.state_tx.borrow(),
-            ServerState::Running | ServerState::Starting | ServerState::Loading
+            ServerState::Running | ServerState::Starting
         )
     }
 
@@ -284,12 +297,14 @@ impl ServerProcess {
 
     fn spawn_reaper_task(&self, mut child: tokio::process::Child) {
         let state_tx = self.state_tx.clone();
+        let version_tx = self.version_tx.clone();
         let kill_signal = self.kill_signal.clone();
 
         tokio::spawn(async move {
             loop {
                 select! {
                     exit_status = child.wait() => {
+                        let _ = version_tx.send(None);
                         match exit_status {
                             Ok(s) if s.success() => { let _ = state_tx.send(ServerState::Stopped); },
                             Ok(_) => { let _ = state_tx.send(ServerState::Crashed); },
@@ -312,6 +327,7 @@ impl ServerProcess {
     ) {
         let log_tx = self.log_tx.clone();
         let state_tx = self.state_tx.clone();
+        let version_tx = self.version_tx.clone();
         let save_notify = self.saved_signal.clone();
 
         tokio::spawn(async move {
@@ -319,12 +335,12 @@ impl ServerProcess {
             let mut err_reader = BufReader::new(stderr).lines();
 
             // Initial State
-            state_tx.send_replace(ServerState::Loading);
+            state_tx.send_replace(ServerState::Starting);
 
             loop {
                 select! {
                     Ok(Some(line)) = out_reader.next_line() => {
-                        Self::handle_stdout_line(line, &log_tx, &state_tx, &save_notify);
+                        Self::handle_stdout_line(line, &log_tx, &state_tx,&version_tx, &save_notify);
                     }
                     Ok(Some(line)) = err_reader.next_line() => {
                         Self::handle_stderr_line(line, &log_tx);
@@ -339,11 +355,17 @@ impl ServerProcess {
         line: String,
         log_tx: &broadcast::Sender<String>,
         state_tx: &watch::Sender<ServerState>,
+        version_tx: &watch::Sender<Option<McVersion>>,
         save_notify: &Arc<Notify>,
     ) {
         let log_obj = match McLogParser::parse(&line) {
             Some(parsed) => {
-                Self::apply_state_transition(&parsed.event, state_tx, save_notify);
+                Self::apply_state_transition(
+                    parsed.event.clone(),
+                    state_tx,
+                    version_tx,
+                    save_notify,
+                );
                 parsed
             }
             None => McLog {
@@ -362,7 +384,7 @@ impl ServerProcess {
     // specific formatting for errors
     fn handle_stderr_line(line: String, log_tx: &broadcast::Sender<String>) {
         let err_entry = McLog {
-            timestamp: "".to_string(),
+            timestamp: Local::now().to_rfc3339(),
             level: "STDERR".to_string(),
             message: line,
             event: ServerEvent::Unknown,
@@ -371,30 +393,46 @@ impl ServerProcess {
     }
 
     fn apply_state_transition(
-        event: &ServerEvent,
+        event: ServerEvent,
         state_tx: &watch::Sender<ServerState>,
+        version_tx: &watch::Sender<Option<McVersion>>,
         save_notify: &Arc<Notify>,
     ) {
         let current_state = *state_tx.borrow();
 
         match event {
+            ServerEvent::Starting {
+                mc_version,
+                fabric_version,
+            } => {
+                if current_state.eq(&ServerState::Stopped) {
+                    println!("Llego a aqui: {:?}, {:?}", mc_version, fabric_version);
+                    let _ = state_tx.send(ServerState::Starting);
+                    let _ = version_tx.send(Some(McVersion {
+                        mc_version,
+                        fabric_version,
+                    }));
+                }
+            }
             ServerEvent::Ready(_) => {
-                if current_state == ServerState::Loading {
+                if current_state.eq(&ServerState::Starting) {
                     let _ = state_tx.send(ServerState::Running);
                 }
             }
             ServerEvent::Stopping => {
-                if current_state == ServerState::Running {
+                if current_state.eq(&ServerState::Running) {
                     let _ = state_tx.send(ServerState::Stopping);
                 }
             }
             ServerEvent::Saving => {
-                if current_state == ServerState::Running {
+                if current_state.eq(&ServerState::Running) {
                     let _ = state_tx.send(ServerState::Saving);
                 }
             }
             ServerEvent::Saved => {
-                let _ = state_tx.send(ServerState::Running);
+                if current_state.eq(&ServerState::Running) {
+                    let _ = state_tx.send(ServerState::Running);
+                }
                 save_notify.notify_waiters();
             }
 
