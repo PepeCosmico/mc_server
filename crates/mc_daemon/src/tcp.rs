@@ -1,5 +1,5 @@
 use crate::actor::DaemonCommand;
-use crate::protocol::{TcpRequest, TcpResponseBuilder};
+use crate::protocol::{ResponsePayload, StartData, TcpRequest, TcpResponse};
 use futures::{SinkExt, StreamExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, oneshot};
@@ -51,12 +51,11 @@ async fn handle_client(socket: TcpStream, tx: mpsc::Sender<DaemonCommand>) -> an
                 let req: TcpRequest = match serde_json::from_str(trimmed) {
                     Ok(val) => val,
                     Err(e) => {
-                        let err_json = serde_json::to_string(
-                            &TcpResponseBuilder::<()>::builder(false)
-                                .message(format!("JSON inválido: {}", e))
-                                .build(),
-                        )?;
-                        framed.send(err_json).await?;
+                        let err_res = serde_json::to_string(&TcpResponse::error(&format!(
+                            "Invalid Json: {}",
+                            e
+                        )))?;
+                        framed.send(err_res).await?;
                         continue;
                     }
                 };
@@ -82,48 +81,37 @@ async fn process_request(
             let (reply_tx, reply_rx) = oneshot::channel();
             tx.send(DaemonCommand::Status(reply_tx)).await.ok();
             let state = reply_rx.await?;
-            Ok(serde_json::to_string(
-                &TcpResponseBuilder::builder(true).data(state).build(),
-            )?)
+            Ok(serde_json::to_string(&TcpResponse::ok_with(
+                ResponsePayload::Status(state),
+            ))?)
         }
         TcpRequest::Start => {
+            println!("Start command");
             let (reply_tx, reply_rx) = oneshot::channel();
             tx.send(DaemonCommand::Start(reply_tx)).await.ok();
             match reply_rx.await? {
-                Ok(msg) => Ok(serde_json::to_string(
-                    &TcpResponseBuilder::<()>::builder(true).message(msg).build(),
-                )?),
-                Err(e) => Ok(serde_json::to_string(
-                    &TcpResponseBuilder::<()>::builder(false).message(e).build(),
-                )?),
+                Ok((version, address)) => Ok(serde_json::to_string(&TcpResponse::ok_with(
+                    ResponsePayload::Start(StartData { version, address }),
+                ))?),
+                Err(e) => Ok(serde_json::to_string(&TcpResponse::error(&e))?),
             }
         }
         TcpRequest::Stop => {
             let (reply_tx, reply_rx) = oneshot::channel();
             tx.send(DaemonCommand::Stop(reply_tx)).await.ok();
             match reply_rx.await? {
-                Ok(msg) => Ok(serde_json::to_string(
-                    &TcpResponseBuilder::<()>::builder(true).message(msg).build(),
-                )?),
-                Err(e) => Ok(serde_json::to_string(
-                    &TcpResponseBuilder::<String>::builder(false)
-                        .message(e)
-                        .build(),
-                )?),
+                Ok(msg) => Ok(serde_json::to_string(&TcpResponse::ok_with(
+                    ResponsePayload::Simple(msg),
+                ))?),
+                Err(e) => Ok(serde_json::to_string(&TcpResponse::error(&e))?),
             }
         }
         TcpRequest::Op(op) => {
             let (reply_tx, _reply_rx) = oneshot::channel();
             tx.send(DaemonCommand::Op(reply_tx, op.clone())).await.ok();
-            Ok(serde_json::to_string(
-                &TcpResponseBuilder::<String>::builder(true)
-                    .message(if op.op {
-                        "Op".to_string()
-                    } else {
-                        "Deop".to_string()
-                    })
-                    .build(),
-            )?)
+            Ok(serde_json::to_string(&TcpResponse::ok_with(
+                ResponsePayload::OpResult(op),
+            ))?)
         }
     }
 }

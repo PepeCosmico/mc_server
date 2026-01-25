@@ -1,6 +1,22 @@
 use mc_process::logs::{McLogParser, ServerEvent};
 
 #[test]
+fn test_detect_server_starting() {
+    let line = "[14:00:00] [main/INFO]: Loading Minecraft 1.21.4 with Fabric Loader 0.17.3";
+    let entry = McLogParser::parse(line).expect("Should parse");
+
+    if let ServerEvent::Starting {
+        mc_version,
+        fabric_version: _,
+    } = entry.event
+    {
+        assert_eq!(mc_version, "1.21.4");
+    } else {
+        panic!("Failed to detect Starting event");
+    }
+}
+
+#[test]
 fn test_detect_server_ready() {
     let line = "[14:20:00] [Server thread/INFO]: Done (5.020s)! For help, type \"help\"";
     let entry = McLogParser::parse(line).expect("Should parse");

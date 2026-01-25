@@ -1,7 +1,7 @@
 use crate::error::Result;
 use futures::{SinkExt, StreamExt};
 use mc_daemon::protocol::TcpResponse;
-use serde::{de::DeserializeOwned, Serialize};
+use serde::Serialize;
 use tokio::net::TcpStream;
 use tokio_util::codec::{Framed, LinesCodec};
 use tracing::{debug, error, info, warn};
@@ -17,10 +17,9 @@ impl TcpClient {
         }
     }
 
-    pub async fn send_request<R, T>(&self, request: R) -> Result<TcpResponse<T>>
+    pub async fn send_request<R>(&self, request: R) -> Result<TcpResponse>
     where
         R: Serialize + std::fmt::Debug,
-        T: DeserializeOwned,
     {
         debug!("Attempting to establish TCP connection");
         let stream = TcpStream::connect(&self.address).await?;
@@ -36,10 +35,10 @@ impl TcpClient {
         if let Some(result) = framed.next().await {
             match result {
                 Ok(line) => {
-                    let response: TcpResponse<T> = serde_json::from_str(&line)?;
+                    let response: TcpResponse = serde_json::from_str(&line)?;
                     if !response.success {
                         warn!(
-                            msg = ?response.message,
+                            msg = ?response.error,
                             "Server processed request but returned failure status"
                         );
                     } else {

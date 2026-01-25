@@ -13,8 +13,11 @@ pub async fn run(address: &str) -> Result<()> {
     .await?;
 
     if response.success {
-        if let Some(msg) = response.message {
-            tracing::info!("{}", msg);
+        match response.data {
+            ResponsePayload::Start(start) => {
+                tracing::info!("Estado del servidor: {:?}", start);
+            }
+            _ => tracing::error!("Server returned invalid response."),
         }
     } else {
         tracing::error!("Error: {}", response.message.unwrap_or_default());

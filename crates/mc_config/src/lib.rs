@@ -79,6 +79,9 @@ impl Default for JavaCfg {
 /// Minecraft server operational options.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ServerCfg {
+    /// Minecraft version.
+    /// Defaults to `1.21.10`
+    pub version: String,
     /// Root directory where server files are hosted.
     /// Defaults to `runtime/server`.
     pub working_dir: PathBuf,
@@ -95,6 +98,7 @@ pub struct ServerCfg {
 impl Default for ServerCfg {
     fn default() -> Self {
         Self {
+            version: "1.21.10".to_string(),
             working_dir: PathBuf::from("runtime/server"),
             jar: PathBuf::from("server.jar"),
             nogui: true,

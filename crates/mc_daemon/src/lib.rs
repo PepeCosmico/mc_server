@@ -1,4 +1,4 @@
 pub mod actor;
-pub mod tcp;
-mod utils;
 pub mod protocol;
+pub mod tcp;
+pub mod utils;
