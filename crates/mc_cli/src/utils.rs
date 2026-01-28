@@ -1,9 +1,8 @@
 use std::time::Duration;
 
+use crate::error::Result;
 use colored::Colorize;
 use indicatif::{ProgressBar, ProgressStyle};
-
-use crate::error::Result;
 
 pub async fn run_task<F, T>(
     loading_msg: &str,
