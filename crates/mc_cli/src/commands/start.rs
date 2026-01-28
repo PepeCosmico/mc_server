@@ -1,4 +1,5 @@
 use crate::{client::TcpClient, error::Result, utils::run_task};
+use colored::Colorize;
 use mc_daemon::protocol::{ResponsePayload, TcpRequest, TcpResponse};
 
 pub async fn run(address: &str) -> Result<()> {
@@ -10,12 +11,22 @@ pub async fn run(address: &str) -> Result<()> {
         "Error starting server",
         client.send_request(TcpRequest::Start),
     )
-        .await?;
+    .await?;
 
     if response.success {
         match response.data {
             ResponsePayload::Start(start) => {
-                tracing::info!("Estado del servidor: {:?}", start);
+                println!("\n");
+                println!("  {}", "Minecraft Server Online".green().bold());
+                println!("  {}", "─".repeat(30).dimmed());
+
+                println!("  {}: {}", "Version".bold(), start.version.cyan());
+
+                let full_addr = format!("{}", start.address);
+                println!("  {}: {}", "Address".bold(), full_addr.yellow().bold());
+
+                println!("  {}", "─".repeat(30).dimmed());
+                println!("  {}", "You can connect now.".italic().dimmed());
             }
             _ => tracing::error!("Server returned invalid response."),
         }
