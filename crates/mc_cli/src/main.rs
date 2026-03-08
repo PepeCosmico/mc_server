@@ -13,20 +13,16 @@ use tracing_subscriber::FmtSubscriber;
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    let log_level = if cli.verbose {
+    if cli.verbose {
         debug!("Logger initialized in DEBUG mode");
-        Level::DEBUG
-    } else {
-        Level::WARN
-    };
+        let subscriber = FmtSubscriber::builder()
+            .with_max_level(Level::DEBUG)
+            .without_time()
+            .with_target(false)
+            .finish();
 
-    let subscriber = FmtSubscriber::builder()
-        .with_max_level(log_level)
-        .without_time()
-        .with_target(false)
-        .finish();
-
-    tracing::subscriber::set_global_default(subscriber)?;
+        tracing::subscriber::set_global_default(subscriber)?;
+    }
 
     let cfg = McConfig::new()?;
 

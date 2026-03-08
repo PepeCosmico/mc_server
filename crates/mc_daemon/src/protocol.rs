@@ -23,7 +23,6 @@ pub struct TcpResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 
-    #[serde(skip_serializing_if = "is_payload_none")]
     pub data: ResponsePayload,
 }
 
@@ -67,8 +66,4 @@ pub enum ResponsePayload {
 pub struct StartData {
     pub version: String,
     pub address: String,
-}
-
-fn is_payload_none(payload: &ResponsePayload) -> bool {
-    matches!(payload, ResponsePayload::None)
 }

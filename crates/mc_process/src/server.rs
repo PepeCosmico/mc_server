@@ -19,7 +19,6 @@ use tokio::{
     process::ChildStdin,
     select,
     sync::{Notify, broadcast, watch},
-    time::{Duration, timeout},
 };
 
 #[derive(Debug)]
@@ -181,15 +180,9 @@ impl ServerProcess {
             // IMPORTANTE: Preparamos la espera ANTES de enviar el comando
             // para no perdernos la notificación si es instantánea.
             let save_notify = self.saved_signal.clone();
-            let save_waiter = save_notify.notified();
+            let _save_waiter = save_notify.notified();
 
             self.exec_command("save-all").await?;
-
-            // Esperamos a que suene el timbre (con un timeout de seguridad)
-            match timeout(Duration::from_secs(10), save_waiter).await {
-                Ok(_) => println!("✅ Guardado confirmado."),
-                Err(_) => eprintln!("⚠️ Timeout esperando guardado. Continuando..."),
-            }
         }
 
         let working_dir = dunce::canonicalize(&self.cfg.server.working_dir)
@@ -337,7 +330,6 @@ impl ServerProcess {
             loop {
                 select! {
                     Ok(Some(line)) = out_reader.next_line() => {
-                        println!("{}", line);
                         Self::handle_stdout_line(line, &log_tx, &state_tx,&version_tx, &save_notify);
                     }
                     Ok(Some(line)) = err_reader.next_line() => {
@@ -404,7 +396,6 @@ impl ServerProcess {
                 fabric_version,
             } => {
                 if current_state.eq(&ServerState::Stopped) {
-                    println!("Llego a aqui: {:?}, {:?}", mc_version, fabric_version);
                     let _ = state_tx.send(ServerState::Starting);
                     let _ = version_tx.send(Some(McVersion {
                         mc_version,
