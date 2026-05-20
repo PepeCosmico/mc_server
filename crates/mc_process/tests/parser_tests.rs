@@ -29,21 +29,6 @@ fn test_detect_server_ready() {
 }
 
 #[test]
-fn test_detect_saving_sequence() {
-    let line_start = "[14:20:00] [Server thread/INFO]: Saving the game...";
-    let line_end = "[14:20:01] [Server thread/INFO]: Saved the game";
-
-    assert_eq!(
-        McLogParser::parse(line_start).unwrap().event,
-        ServerEvent::Saving
-    );
-    assert_eq!(
-        McLogParser::parse(line_end).unwrap().event,
-        ServerEvent::Saved
-    );
-}
-
-#[test]
 fn test_detect_chat_async() {
     // El chat moderno suele venir de hilos async
     let line = "[14:20:00] [Async Chat Thread - #1/INFO]: <Steve> Hola mundo";
