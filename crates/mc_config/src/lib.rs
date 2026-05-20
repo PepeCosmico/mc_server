@@ -31,10 +31,6 @@ pub struct McConfig {
     #[serde(default)]
     pub server: ServerCfg,
 
-    /// Backup system configuration.
-    #[serde(default)] // Added serde default here for consistency
-    pub backup: BackupCfg,
-
     /// Configuration for the command line interface or remote connection.
     #[serde(default)] // Added serde default here for consistency
     pub client: ClientCfg,
@@ -45,7 +41,6 @@ impl Default for McConfig {
         Self {
             java: JavaCfg::default(),
             server: ServerCfg::default(),
-            backup: BackupCfg::default(),
             client: ClientCfg::default(),
         }
     }
@@ -103,22 +98,6 @@ impl Default for ServerCfg {
             jar: PathBuf::from("server.jar"),
             nogui: true,
             auto_eula: false,
-        }
-    }
-}
-
-/// Backup system configuration.
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct BackupCfg {
-    /// Path where compressed backup files will be stored.
-    /// Defaults to `runtime/backups`.
-    pub path: PathBuf,
-}
-
-impl Default for BackupCfg {
-    fn default() -> Self {
-        Self {
-            path: PathBuf::from("runtime/backups"),
         }
     }
 }

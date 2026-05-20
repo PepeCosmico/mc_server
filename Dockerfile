@@ -20,7 +20,7 @@ FROM eclipse-temurin:21-jre-jammy
 WORKDIR /app
 
 # Creamos las carpetas necesarias para que Rust no falle al arrancar
-RUN mkdir -p server backups
+RUN mkdir -p server
 
 # Copiamos el binario compilado desde la etapa 1
 COPY --from=builder /usr/src/app/target/release/mc_daemon /app/mc_daemon

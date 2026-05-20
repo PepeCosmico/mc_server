@@ -10,7 +10,6 @@ services:
       - RUN_MODE=prod
     volumes:
       - ./runtime/server:/app/server
-      - ./runtime/backups:/app/backups
       - ./config/prod.toml:/app/config/prod.toml
     deploy:
       resources:

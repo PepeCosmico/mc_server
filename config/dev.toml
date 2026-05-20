@@ -10,9 +10,6 @@ jar = "server.jar"
 nogui = true
 auto_eula = true
 
-[backup]
-path = "./runtime/backups"
-
 [client]
 host = "127.0.0.1"
 port = 7110

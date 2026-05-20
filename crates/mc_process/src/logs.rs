@@ -10,9 +10,6 @@ pub enum ServerEvent {
         fabric_version: String,
     }, // Starting server
     Ready(String), // "Done (X.Xs)!"
-    Saving,        // "Saving..."
-    Saved,         // "Saved the game"
-    SaveOff,       // "Automatic saving is now disabled"
     Stopping,      // "Stopping server"
     Chat {
         author: String,
@@ -21,7 +18,7 @@ pub enum ServerEvent {
     Unknown,       // Cualquier otra línea
 }
 
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct McLog {
     pub timestamp: String,
     pub level: String,
@@ -69,9 +66,25 @@ impl McLogParser {
     fn detect_event(level: &str, msg: &str) -> ServerEvent {
         static DONE_RE: OnceLock<Regex> = OnceLock::new();
         static FABRIC_START_RE: OnceLock<Regex> = OnceLock::new();
+        static CHAT_RE: OnceLock<Regex> = OnceLock::new();
 
         let is_server_thread = level.starts_with("Server thread");
         let is_main_thread = level.starts_with("main");
+        let is_async_chat_thread = level.starts_with("Async Chat Thread");
+
+        // Chat detection runs first so that player messages whose body happens
+        // to look like a system command (e.g. "Stopping the server") never get
+        // misclassified as a system event.
+        if is_async_chat_thread {
+            let chat_re =
+                CHAT_RE.get_or_init(|| Regex::new(r"^<([^>]+)> (.*)$").unwrap());
+            if let Some(caps) = chat_re.captures(msg) {
+                return ServerEvent::Chat {
+                    author: caps[1].to_string(),
+                    msg: caps[2].to_string(),
+                };
+            }
+        }
 
         if is_main_thread {
             let start_re = FABRIC_START_RE.get_or_init(|| {
@@ -94,18 +107,6 @@ impl McLogParser {
 
             if msg.starts_with("Stopping the server") {
                 return ServerEvent::Stopping;
-            }
-
-            if msg.starts_with("Saving the game") {
-                return ServerEvent::Saving;
-            }
-
-            if msg.starts_with("Saved the game") {
-                return ServerEvent::Saved;
-            }
-
-            if msg.starts_with("Automatic saving is now disabled") {
-                return ServerEvent::SaveOff;
             }
         }
 
