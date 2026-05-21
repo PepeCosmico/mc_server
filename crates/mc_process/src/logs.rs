@@ -1,22 +1,7 @@
+use mc_types::server::event::ServerEvent;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type", content = "data")]
-pub enum ServerEvent {
-    Starting {
-        mc_version: String,
-        fabric_version: String,
-    }, // Starting server
-    Ready(String), // "Done (X.Xs)!"
-    Stopping,      // "Stopping server"
-    Chat {
-        author: String,
-        msg: String,
-    }, // "<Jugador> mensaje"
-    Unknown,       // Cualquier otra línea
-}
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct McLog {
@@ -76,8 +61,7 @@ impl McLogParser {
         // to look like a system command (e.g. "Stopping the server") never get
         // misclassified as a system event.
         if is_async_chat_thread {
-            let chat_re =
-                CHAT_RE.get_or_init(|| Regex::new(r"^<([^>]+)> (.*)$").unwrap());
+            let chat_re = CHAT_RE.get_or_init(|| Regex::new(r"^<([^>]+)> (.*)$").unwrap());
             if let Some(caps) = chat_re.captures(msg) {
                 return ServerEvent::Chat {
                     author: caps[1].to_string(),

@@ -775,7 +775,7 @@ dependencies = [
  "futures",
  "indicatif",
  "mc_config",
- "mc_daemon",
+ "mc_types",
  "serde",
  "serde_json",
  "thiserror",
@@ -804,6 +804,7 @@ dependencies = [
  "futures",
  "mc_config",
  "mc_process",
+ "mc_types",
  "serde",
  "serde_json",
  "tokio",
@@ -820,6 +821,7 @@ dependencies = [
  "chrono",
  "dunce",
  "mc_config",
+ "mc_types",
  "regex",
  "serde",
  "serde_json",
@@ -828,6 +830,13 @@ dependencies = [
  "thiserror",
  "tokio",
  "toml 0.9.10+spec-1.1.0",
+]
+
+[[package]]
+name = "mc_types"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

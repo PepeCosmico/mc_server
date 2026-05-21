@@ -16,6 +16,7 @@ regex = "1.12"
 sysinfo = "0.37.2"
 
 mc_config = { path = "../mc_config" }
+mc_types = { path = "../mc_types" }
 
 [dev-dependencies]
 tempfile = "3"

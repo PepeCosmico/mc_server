@@ -1,15 +1,15 @@
 use crate::error::{Error, Result};
-use crate::logs::{McLog, McLogParser, ServerEvent};
-use crate::state::{McVersion, ServerState};
+use crate::logs::{McLog, McLogParser};
 use chrono::Local;
 use mc_config::McConfig;
+use mc_types::server::{event::ServerEvent, state::ServerState, version::McVersion};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::select;
-use tokio::sync::{Notify, broadcast, watch};
+use tokio::sync::{broadcast, watch, Notify};
 
 /// Create the server's working directory and (optionally) write `eula.txt`.
 pub(crate) async fn prepare_workdir(cfg: &McConfig) -> Result<()> {

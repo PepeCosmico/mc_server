@@ -1,6 +1,7 @@
 use crate::actor::DaemonCommand;
-use crate::protocol::{ResponsePayload, StartData, TcpRequest, TcpResponse};
 use futures::{SinkExt, StreamExt};
+use mc_types::tcp::protocol::{ResponsePayload, TcpRequest, TcpResponse};
+use mc_types::tcp::schemas::StartData;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::codec::{Framed, LinesCodec};
@@ -32,7 +33,7 @@ pub async fn server_loop(addr: &str, tx: mpsc::Sender<DaemonCommand>) -> anyhow:
                 println!("Stopping Daemon...");
                 break;
             }
-        };
+        }
     }
     Ok(())
 }

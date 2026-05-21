@@ -1,4 +1,4 @@
-use crate::logs::ServerEvent;
+use crate::server::event::ServerEvent;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 
@@ -37,12 +37,6 @@ impl Display for ServerState {
             ServerState::Crashed => write!(f, "Crashed"),
         }
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct McVersion {
-    pub mc_version: String,
-    pub fabric_version: String,
 }
 
 #[cfg(test)]

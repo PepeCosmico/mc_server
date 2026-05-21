@@ -1,13 +1,13 @@
 use crate::error::{Error, Result};
 use crate::logs::McLog;
-use crate::state::{McVersion, ServerState};
 use crate::{metrics, process};
 use mc_config::McConfig;
+use mc_types::server::{state::ServerState, version::McVersion};
 use std::sync::Arc;
 use sysinfo::System;
 use tokio::io::AsyncWriteExt;
 use tokio::process::ChildStdin;
-use tokio::sync::{Notify, broadcast, watch};
+use tokio::sync::{broadcast, watch, Notify};
 
 /// Owner of the Minecraft JVM child process.
 ///
@@ -67,12 +67,11 @@ impl ServerProcess {
 
         process::prepare_workdir(&self.cfg).await?;
 
-        let (working_dir, jar_path) =
-            process::resolve_paths(&self.cfg).await.inspect_err(|e| {
-                if matches!(e, Error::JarFileDoesNotExist) {
-                    self.state_tx.send_replace(ServerState::Stopped);
-                }
-            })?;
+        let (working_dir, jar_path) = process::resolve_paths(&self.cfg).await.inspect_err(|e| {
+            if matches!(e, Error::JarFileDoesNotExist) {
+                self.state_tx.send_replace(ServerState::Stopped);
+            }
+        })?;
 
         let args = process::build_jvm_args(&self.cfg, &jar_path);
         let mut child = process::spawn_jvm(&self.cfg, &working_dir, &args)?;
