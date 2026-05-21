@@ -5,8 +5,20 @@ pub enum Error {
     #[error("Error trying to create working directory")]
     CreateWorkingDirectoryFailed(#[source] std::io::Error),
 
+    #[error("Error trying to create runtime directory")]
+    CreateRuntimeDirectoryFailed(#[source] std::io::Error),
+
     #[error("Error trying to write eula file")]
     CreateEulaFileFailed(#[source] std::io::Error),
+
+    #[error("Error trying to write pid file")]
+    CreatePidFileFailed(#[source] std::io::Error),
+
+    #[error("Error trying to read pid file")]
+    ReadPidFileFailed(#[source] std::io::Error),
+
+    #[error("Error trying to remove pid file")]
+    RemovePidFileFailed(#[source] std::io::Error),
 
     #[error("Error trying resolve working_dir absolute path")]
     ResolveWorkingDirectoryFailed(#[source] std::io::Error),

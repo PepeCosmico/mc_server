@@ -13,3 +13,6 @@ auto_eula = true
 [client]
 host = "0.0.0.0"
 port = 7110
+
+[daemon]
+orphan_policy = "refuse"

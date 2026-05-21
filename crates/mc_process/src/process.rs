@@ -1,5 +1,6 @@
 use crate::error::{Error, Result};
 use crate::logs::{McLog, McLogParser};
+use crate::pidfile;
 use chrono::Local;
 use mc_config::McConfig;
 use mc_types::server::{event::ServerEvent, state::ServerState, version::McVersion};
@@ -74,6 +75,7 @@ pub(crate) fn spawn_jvm(
 /// Also reacts to `kill_signal` by force-killing the child.
 pub(crate) fn spawn_reaper(
     mut child: tokio::process::Child,
+    working_dir: PathBuf,
     state_tx: watch::Sender<ServerState>,
     version_tx: watch::Sender<Option<McVersion>>,
     kill_signal: Arc<Notify>,
@@ -88,6 +90,7 @@ pub(crate) fn spawn_reaper(
                         _ => ServerState::Crashed,
                     };
                     state_tx.send_replace(next);
+                    let _ = pidfile::remove(&working_dir);
                     break;
                 }
                 _ = kill_signal.notified() => {
