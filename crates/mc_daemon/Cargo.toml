@@ -25,3 +25,4 @@ anyhow = "1.0"
 # McServer
 mc_process = { path = "../mc_process" }
 mc_config = { path = "../mc_config" }
+mc_types = { path = "../mc_types" }

@@ -1,8 +1,10 @@
-use crate::{protocol::Op, utils::wait_for_state};
+use crate::utils::wait_for_state;
 use mc_config::McConfig;
-use mc_process::{server::ServerProcess, state::ServerState};
+use mc_process::server::ServerProcess;
+use mc_types::server::state::ServerState;
+use mc_types::tcp::schemas::Op;
 use tokio::sync::{mpsc, oneshot};
-use tokio::time::{Duration, timeout};
+use tokio::time::{timeout, Duration};
 
 pub enum DaemonCommand {
     Start(oneshot::Sender<Result<(String, String), String>>),

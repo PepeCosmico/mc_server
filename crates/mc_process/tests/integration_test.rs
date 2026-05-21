@@ -1,5 +1,6 @@
 use mc_config::McConfig;
-use mc_process::{server::ServerProcess, state::ServerState};
+use mc_process::server::ServerProcess;
+use mc_types::server::state::ServerState;
 use std::path::PathBuf;
 use std::{fs::File, time::Duration};
 use tempfile::tempdir;

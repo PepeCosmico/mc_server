@@ -1,7 +1,7 @@
 use crate::utils::run_task;
 use crate::{client::TcpClient, error::Result};
 use colored::Colorize;
-use mc_daemon::protocol::{ResponsePayload, TcpRequest, TcpResponse};
+use mc_types::tcp::protocol::{ResponsePayload, TcpRequest, TcpResponse};
 
 pub async fn run(address: &str) -> Result<()> {
     let client = TcpClient::new(address);

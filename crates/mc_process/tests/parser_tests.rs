@@ -1,4 +1,5 @@
-use mc_process::logs::{McLogParser, ServerEvent};
+use mc_process::logs::McLogParser;
+use mc_types::server::event::ServerEvent;
 
 #[test]
 fn test_detect_server_starting() {

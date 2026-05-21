@@ -1,4 +1,7 @@
-use mc_process::state::ServerState;
+use crate::{
+    server::state::ServerState,
+    tcp::schemas::{Op, StartData},
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -8,12 +11,6 @@ pub enum TcpRequest {
     Stop,
     Status,
     Op(Op),
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct Op {
-    pub player: String,
-    pub op: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -60,10 +57,4 @@ pub enum ResponsePayload {
     OpResult(Op),
     Simple(String),
     None,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct StartData {
-    pub version: String,
-    pub address: String,
 }
