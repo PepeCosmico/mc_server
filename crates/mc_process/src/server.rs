@@ -1,6 +1,8 @@
-use crate::error::{Error, Result};
-use crate::logs::McLog;
-use crate::{metrics, process};
+use crate::{
+    error::{Error, Result},
+    logs::McLog,
+    pidfile, {metrics, process},
+};
 use mc_config::McConfig;
 use mc_types::server::{state::ServerState, version::McVersion};
 use std::sync::Arc;
@@ -79,6 +81,8 @@ impl ServerProcess {
         self.process_id = child.id();
         self.stdin = child.stdin.take();
 
+        pidfile::write(&working_dir, self.process_id.unwrap())?;
+
         let stdout = child.stdout.take().expect("child stdout missing");
         let stderr = child.stderr.take().expect("child stderr missing");
 
@@ -91,6 +95,7 @@ impl ServerProcess {
         );
         process::spawn_reaper(
             child,
+            working_dir,
             self.state_tx.clone(),
             self.version_tx.clone(),
             self.kill_signal.clone(),
@@ -105,6 +110,12 @@ impl ServerProcess {
             return Ok(());
         }
         self.exec_command("stop").await
+    }
+
+    /// Trigger a forced kill of the child process via the reaper's kill
+    /// signal. Returns immediately; observe the exit through `state()`.
+    pub fn force_stop(&self) {
+        self.kill_signal.notify_one();
     }
 
     /// Send `/op <player>` or `/deop <player>`.

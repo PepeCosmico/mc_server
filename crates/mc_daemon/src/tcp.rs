@@ -2,12 +2,15 @@ use crate::actor::DaemonCommand;
 use futures::{SinkExt, StreamExt};
 use mc_types::tcp::protocol::{ResponsePayload, TcpRequest, TcpResponse};
 use mc_types::tcp::schemas::StartData;
+use std::time::Duration;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::codec::{Framed, LinesCodec};
 
 pub async fn server_loop(addr: &str, tx: mpsc::Sender<DaemonCommand>) -> anyhow::Result<()> {
     let listener = TcpListener::bind(addr).await?;
+    #[cfg(windows)]
+    deny_socket_inheritance(&listener)?;
     println!("Daemon TCP escuchando en {}", addr);
 
     loop {
@@ -31,11 +34,46 @@ pub async fn server_loop(addr: &str, tx: mpsc::Sender<DaemonCommand>) -> anyhow:
             }
             _ = tokio::signal::ctrl_c() => {
                 println!("Stopping Daemon...");
+                graceful_shutdown(&tx).await;
                 break;
             }
         }
     }
     Ok(())
+}
+
+/// Explicitly clear `HANDLE_FLAG_INHERIT` on the listener socket. Belt and
+/// braces against child processes (the spawned JVM) inheriting the bind and
+/// keeping port 7110 stuck after the daemon dies abruptly.
+#[cfg(windows)]
+fn deny_socket_inheritance(listener: &TcpListener) -> std::io::Result<()> {
+    use std::os::windows::io::AsRawSocket;
+    use windows_sys::Win32::Foundation::{SetHandleInformation, HANDLE, HANDLE_FLAG_INHERIT};
+
+    let handle = listener.as_raw_socket() as HANDLE;
+    let ok = unsafe { SetHandleInformation(handle, HANDLE_FLAG_INHERIT, 0) };
+    if ok == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+/// Coordinates the actor's `Shutdown` reply with an outer safety timeout, so
+/// even if the actor itself hangs we still return and let `main` exit.
+async fn graceful_shutdown(tx: &mpsc::Sender<DaemonCommand>) {
+    let (reply_tx, reply_rx) = oneshot::channel();
+    if tx.send(DaemonCommand::Shutdown(reply_tx)).await.is_err() {
+        eprintln!("actor channel closed");
+        return;
+    }
+    // Outer deadline larger than the actor's internal 30s graceful + 5s force,
+    // in case the actor is still draining a previous command.
+    match tokio::time::timeout(Duration::from_secs(45), reply_rx).await {
+        Ok(Ok(Ok(()))) => println!("daemon stopped"),
+        Ok(Ok(Err(e))) => eprintln!("shutdown error: {e}"),
+        Ok(Err(_)) => eprintln!("actor exited without reply"),
+        Err(_) => eprintln!("actor reply timed out"),
+    }
 }
 
 async fn handle_client(socket: TcpStream, tx: mpsc::Sender<DaemonCommand>) -> anyhow::Result<()> {

@@ -11,6 +11,7 @@ pub enum DaemonCommand {
     Stop(oneshot::Sender<Result<String, String>>),
     Status(oneshot::Sender<ServerState>),
     Op(oneshot::Sender<Result<(), String>>, Op),
+    Shutdown(oneshot::Sender<Result<(), String>>),
 }
 
 pub fn spawn_actor(cfg: McConfig, mut rx: mpsc::Receiver<DaemonCommand>) {
@@ -24,6 +25,10 @@ pub fn spawn_actor(cfg: McConfig, mut rx: mpsc::Receiver<DaemonCommand>) {
                 DaemonCommand::Stop(reply) => stop(&mut srv, reply).await,
                 DaemonCommand::Status(reply) => status(&srv, reply),
                 DaemonCommand::Op(reply, op_data) => op(&mut srv, reply, op_data).await,
+                DaemonCommand::Shutdown(reply) => {
+                    shutdown(&mut srv, reply).await;
+                    break;
+                }
             }
         }
         println!("🤖 Actor detenido (Canal cerrado).");
@@ -107,6 +112,52 @@ async fn stop(srv: &mut ServerProcess, reply: oneshot::Sender<Result<String, Str
 fn status(srv: &ServerProcess, reply: oneshot::Sender<ServerState>) {
     let status = srv.state().borrow().clone();
     let _ = reply.send(status);
+}
+
+/// Graceful shutdown: send `/stop`, wait for `Stopped`, escalate to force-kill
+/// on timeout. Runs inline (not in a spawned task) because no further actor
+/// commands will be processed after this completes — the daemon is exiting.
+async fn shutdown(srv: &mut ServerProcess, reply: oneshot::Sender<Result<(), String>>) {
+    let current = *srv.state().borrow();
+    if matches!(current, ServerState::Stopped | ServerState::Crashed) {
+        let _ = reply.send(Ok(()));
+        return;
+    }
+
+    // Solo mandamos /stop si todavía no está en camino. Si ya está Stopping,
+    // alguien ya pulsó el botón — solo esperamos.
+    if matches!(current, ServerState::Running | ServerState::Starting) {
+        let _ = srv.exec_command("stop").await;
+    }
+
+    let graceful = timeout(
+        Duration::from_secs(30),
+        wait_for_state(srv.state(), ServerState::Stopped),
+    )
+    .await;
+
+    if matches!(graceful, Ok(Ok(()))) {
+        let _ = reply.send(Ok(()));
+        return;
+    }
+
+    eprintln!("graceful shutdown timed out, forcing kill");
+    srv.force_stop();
+
+    let forced = timeout(
+        Duration::from_secs(5),
+        wait_for_state(srv.state(), ServerState::Stopped),
+    )
+    .await;
+
+    match forced {
+        Ok(Ok(())) => {
+            let _ = reply.send(Ok(()));
+        }
+        _ => {
+            let _ = reply.send(Err("force kill did not stop the jvm".to_string()));
+        }
+    }
 }
 
 async fn op(srv: &mut ServerProcess, reply: oneshot::Sender<Result<(), String>>, op: Op) {

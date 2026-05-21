@@ -801,16 +801,19 @@ name = "mc_daemon"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "dunce",
  "futures",
  "mc_config",
  "mc_process",
  "mc_types",
  "serde",
  "serde_json",
+ "sysinfo",
  "tokio",
  "tokio-util",
  "tracing",
  "tracing-subscriber",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

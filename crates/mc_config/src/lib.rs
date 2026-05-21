@@ -34,6 +34,10 @@ pub struct McConfig {
     /// Configuration for the command line interface or remote connection.
     #[serde(default)] // Added serde default here for consistency
     pub client: ClientCfg,
+
+    /// Daemon-level operational policy.
+    #[serde(default)]
+    pub daemon: DaemonCfg,
 }
 
 impl Default for McConfig {
@@ -42,6 +46,7 @@ impl Default for McConfig {
             java: JavaCfg::default(),
             server: ServerCfg::default(),
             client: ClientCfg::default(),
+            daemon: DaemonCfg::default(),
         }
     }
 }
@@ -125,6 +130,26 @@ impl ClientCfg {
     pub fn get_addr(&self) -> String {
         format!("{}:{}", self.host, self.port)
     }
+}
+
+/// Daemon-level options that are not tied to a specific subsystem.
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct DaemonCfg {
+    /// Policy when an orphan JVM is detected on daemon startup.
+    #[serde(default)]
+    pub orphan_policy: OrphanPolicy,
+}
+
+/// What to do when the daemon starts and finds a pidfile pointing at a live JVM.
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum OrphanPolicy {
+    /// Refuse to start; print the orphan PID and exit. Safe default for prod.
+    #[default]
+    Refuse,
+    /// Kill the orphan (SIGTERM with grace period, escalating to SIGKILL) and
+    /// continue. Pragmatic for dev.
+    Kill,
 }
 
 impl McConfig {
