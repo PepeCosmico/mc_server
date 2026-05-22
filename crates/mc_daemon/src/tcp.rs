@@ -6,34 +6,34 @@ use std::time::Duration;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::codec::{Framed, LinesCodec};
+use tracing::{error, info};
 
 pub async fn server_loop(addr: &str, tx: mpsc::Sender<DaemonCommand>) -> anyhow::Result<()> {
     let listener = TcpListener::bind(addr).await?;
     #[cfg(windows)]
     deny_socket_inheritance(&listener)?;
-    println!("Daemon TCP escuchando en {}", addr);
+    info!("daemon TCP listening on {}", addr);
 
     loop {
         tokio::select! {
             result = listener.accept() => {
                 match result {
                     Ok((socket, addr)) => {
-                        println!("Nueva conexión: {}", addr);
                         let tx_clone = tx.clone();
 
                         tokio::spawn(async move {
                             if let Err(e) = handle_client(socket, tx_clone).await {
-                                eprintln!("Error cliente {}: {}", addr, e);
+                                error!("client {} error: {}", addr, e);
                             }
                         });
                     }
                     Err(e) => {
-                        println!("Error accepting connection: {}", e);
+                        error!("error accepting connection: {}", e);
                     }
                 }
             }
             _ = tokio::signal::ctrl_c() => {
-                println!("Stopping Daemon...");
+                info!("stopping daemon...");
                 graceful_shutdown(&tx).await;
                 break;
             }
@@ -63,16 +63,16 @@ fn deny_socket_inheritance(listener: &TcpListener) -> std::io::Result<()> {
 async fn graceful_shutdown(tx: &mpsc::Sender<DaemonCommand>) {
     let (reply_tx, reply_rx) = oneshot::channel();
     if tx.send(DaemonCommand::Shutdown(reply_tx)).await.is_err() {
-        eprintln!("actor channel closed");
+        error!("actor channel closed");
         return;
     }
     // Outer deadline larger than the actor's internal 30s graceful + 5s force,
     // in case the actor is still draining a previous command.
     match tokio::time::timeout(Duration::from_secs(45), reply_rx).await {
-        Ok(Ok(Ok(()))) => println!("daemon stopped"),
-        Ok(Ok(Err(e))) => eprintln!("shutdown error: {e}"),
-        Ok(Err(_)) => eprintln!("actor exited without reply"),
-        Err(_) => eprintln!("actor reply timed out"),
+        Ok(Ok(Ok(()))) => info!("daemon stopped"),
+        Ok(Ok(Err(e))) => error!("shutdown error: {e}"),
+        Ok(Err(_)) => error!("actor exited without reply"),
+        Err(_) => error!("actor reply timed out"),
     }
 }
 
@@ -115,6 +115,7 @@ async fn process_request(
     req: TcpRequest,
     tx: &mpsc::Sender<DaemonCommand>,
 ) -> anyhow::Result<String> {
+    info!("incoming request: {req:?}");
     match req {
         TcpRequest::Status => {
             let (reply_tx, reply_rx) = oneshot::channel();

@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
 #[cfg(unix)]
 use sysinfo::Signal;
+use tracing::{debug, info, warn};
 
 /// Run the orphan-recovery flow before the actor is spawned.
 ///
@@ -19,31 +20,31 @@ use sysinfo::Signal;
 /// `Err(_)` only when the configured policy is `Refuse` and a real orphan was
 /// found — the caller is expected to translate that into a process exit.
 pub fn run(working_dir_raw: &Path, policy: OrphanPolicy) -> anyhow::Result<()> {
-    eprintln!("recovery: working_dir = {}", working_dir_raw.display());
-    eprintln!("recovery: policy = {policy:?}");
+    debug!("working_dir = {}", working_dir_raw.display());
+    debug!("policy = {policy:?}");
 
     let pid = match pidfile::read(working_dir_raw) {
         Ok(Some(pid)) => {
-            eprintln!("recovery: pidfile pid = {pid}");
+            debug!("pidfile pid = {pid}");
             pid
         }
         Ok(None) => {
-            eprintln!("recovery: no pidfile, clean start");
+            debug!("no pidfile, clean start");
             return Ok(());
         }
         Err(e) => {
-            eprintln!("recovery: pidfile unreadable ({e}), assuming clean start");
+            warn!("pidfile unreadable ({e}), assuming clean start");
             return Ok(());
         }
     };
 
     let working_dir = match dunce::canonicalize(working_dir_raw) {
         Ok(p) => {
-            eprintln!("recovery: canonical working_dir = {}", p.display());
+            debug!("canonical working_dir = {}", p.display());
             p
         }
         Err(e) => {
-            eprintln!("recovery: working_dir does not exist ({e}), removing stale pidfile");
+            warn!("working_dir does not exist ({e}), removing stale pidfile");
             let _ = pidfile::remove(working_dir_raw);
             return Ok(());
         }
@@ -52,7 +53,7 @@ pub fn run(working_dir_raw: &Path, policy: OrphanPolicy) -> anyhow::Result<()> {
     let mut sys = System::new();
     match classify(pid, &working_dir, &mut sys) {
         Orphan::None => {
-            eprintln!("recovery: stale pidfile, removing");
+            debug!("stale pidfile, removing");
             let _ = pidfile::remove(working_dir_raw);
             Ok(())
         }
@@ -64,10 +65,10 @@ pub fn run(working_dir_raw: &Path, policy: OrphanPolicy) -> anyhow::Result<()> {
                 pidfile_display(working_dir_raw),
             )),
             OrphanPolicy::Kill => {
-                eprintln!("recovery: killing orphan jvm pid {pid}");
+                info!("killing orphan jvm pid {pid}");
                 kill(pid, &mut sys)?;
                 let _ = pidfile::remove(working_dir_raw);
-                eprintln!("recovery: orphan killed");
+                info!("orphan killed");
                 Ok(())
             }
         },
@@ -96,19 +97,19 @@ fn classify(pid: u32, working_dir: &Path, sys: &mut System) -> Orphan {
     );
 
     let Some(proc) = sys.process(sys_pid) else {
-        eprintln!("classify: pid {pid} not found");
+        debug!("classify: pid {pid} not found");
         return Orphan::None;
     };
 
     let name = proc.name().to_string_lossy().to_ascii_lowercase();
-    eprintln!("classify: pid {pid} name = {name:?}");
+    debug!("classify: pid {pid} name = {name:?}");
     if !name.contains("java") {
-        eprintln!("classify: not a java process");
+        debug!("classify: not a java process");
         return Orphan::None;
     }
 
     let proc_cwd = proc.cwd().map(|p| p.to_path_buf());
-    eprintln!("classify: pid {pid} cwd = {proc_cwd:?}");
+    debug!("classify: pid {pid} cwd = {proc_cwd:?}");
 
     let canonical_cwd = proc_cwd
         .as_deref()
@@ -116,11 +117,11 @@ fn classify(pid: u32, working_dir: &Path, sys: &mut System) -> Orphan {
 
     match canonical_cwd {
         Some(cwd) if cwd == working_dir => {
-            eprintln!("classify: cwd matches, orphan confirmed");
+            debug!("classify: cwd matches, orphan confirmed");
             Orphan::Alive
         }
         Some(cwd) => {
-            eprintln!(
+            debug!(
                 "classify: cwd mismatch (expected {}, got {})",
                 working_dir.display(),
                 cwd.display()
@@ -131,7 +132,7 @@ fn classify(pid: u32, working_dir: &Path, sys: &mut System) -> Orphan {
             // En Windows leer cwd de un proceso re-parentado a system suele
             // fallar. El pidfile vive dentro de nuestro working_dir, así que
             // pidfile + PID vivo + nombre java ya es señal fuerte. Confiamos.
-            eprintln!("classify: cwd unavailable, trusting pidfile");
+            debug!("classify: cwd unavailable, trusting pidfile");
             Orphan::Alive
         }
     }
@@ -144,18 +145,18 @@ fn kill(pid: u32, sys: &mut System) -> anyhow::Result<()> {
     {
         sys.refresh_processes(ProcessesToUpdate::Some(&[sys_pid]), true);
         let Some(proc) = sys.process(sys_pid) else {
-            eprintln!("kill: pid {pid} already gone");
+            debug!("kill: pid {pid} already gone");
             return Ok(());
         };
-        eprintln!("kill: sending SIGTERM to pid {pid}");
+        debug!("kill: sending SIGTERM to pid {pid}");
         if !proc.kill_with(Signal::Term).unwrap_or(false) {
             return Err(anyhow::anyhow!("SIGTERM failed for pid {pid}"));
         }
     }
     #[cfg(not(unix))]
-    eprintln!("kill: skipping graceful signal (not supported on this platform)");
+    debug!("kill: skipping graceful signal (not supported on this platform)");
 
-    eprintln!("kill: waiting up to 30s for graceful exit");
+    debug!("kill: waiting up to 30s for graceful exit");
     let graceful_start = Instant::now();
     let graceful_deadline = graceful_start + Duration::from_secs(30);
     let mut last_tick = graceful_start;
@@ -163,14 +164,14 @@ fn kill(pid: u32, sys: &mut System) -> anyhow::Result<()> {
         std::thread::sleep(Duration::from_millis(200));
         sys.refresh_processes(ProcessesToUpdate::Some(&[sys_pid]), true);
         if sys.process(sys_pid).is_none() {
-            eprintln!(
+            debug!(
                 "kill: pid {pid} exited after {:.1}s",
                 graceful_start.elapsed().as_secs_f32()
             );
             return Ok(());
         }
         if last_tick.elapsed() >= Duration::from_secs(5) {
-            eprintln!(
+            debug!(
                 "kill: pid {pid} still alive after {:.0}s",
                 graceful_start.elapsed().as_secs_f32()
             );
@@ -178,7 +179,7 @@ fn kill(pid: u32, sys: &mut System) -> anyhow::Result<()> {
         }
     }
 
-    eprintln!("kill: graceful timeout, escalating to force kill");
+    debug!("kill: graceful timeout, escalating to force kill");
     sys.refresh_processes(ProcessesToUpdate::Some(&[sys_pid]), true);
     if let Some(proc) = sys.process(sys_pid) {
         if !proc.kill() {
@@ -193,7 +194,7 @@ fn kill(pid: u32, sys: &mut System) -> anyhow::Result<()> {
         std::thread::sleep(Duration::from_millis(100));
         sys.refresh_processes(ProcessesToUpdate::Some(&[sys_pid]), true);
         if sys.process(sys_pid).is_none() {
-            eprintln!("kill: pid {pid} exited after force kill");
+            debug!("kill: pid {pid} exited after force kill");
             return Ok(());
         }
     }

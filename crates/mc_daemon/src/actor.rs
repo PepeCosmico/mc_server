@@ -1,10 +1,12 @@
 use crate::utils::wait_for_state;
 use mc_config::McConfig;
 use mc_process::server::ServerProcess;
-use mc_types::server::state::ServerState;
+use mc_types::server::{event::ServerEvent, state::ServerState};
 use mc_types::tcp::schemas::Op;
+use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::{timeout, Duration};
+use tracing::{debug, info, warn};
 
 pub enum DaemonCommand {
     Start(oneshot::Sender<Result<(String, String), String>>),
@@ -16,8 +18,11 @@ pub enum DaemonCommand {
 
 pub fn spawn_actor(cfg: McConfig, mut rx: mpsc::Receiver<DaemonCommand>) {
     tokio::spawn(async move {
-        println!("🤖 Actor iniciado. Listo para recibir comandos.");
+        info!("actor started, ready for commands");
         let mut srv = ServerProcess::new(cfg.clone());
+
+        spawn_state_watcher(srv.state());
+        spawn_event_watcher(srv.logs());
 
         while let Some(msg) = rx.recv().await {
             match msg {
@@ -31,7 +36,7 @@ pub fn spawn_actor(cfg: McConfig, mut rx: mpsc::Receiver<DaemonCommand>) {
                 }
             }
         }
-        println!("🤖 Actor detenido (Canal cerrado).");
+        info!("actor stopped (channel closed)");
     });
 }
 
@@ -54,8 +59,6 @@ async fn start(
                     return wait_for_state(state_rx, ServerState::Running).await;
                 })
                 .await;
-
-                println!("asjdklc");
 
                 let version = match version_rx.borrow().clone() {
                     Some(ver) => ver.mc_version,
@@ -141,7 +144,7 @@ async fn shutdown(srv: &mut ServerProcess, reply: oneshot::Sender<Result<(), Str
         return;
     }
 
-    eprintln!("graceful shutdown timed out, forcing kill");
+    warn!("graceful shutdown timed out, forcing kill");
     srv.force_stop();
 
     let forced = timeout(
@@ -158,6 +161,34 @@ async fn shutdown(srv: &mut ServerProcess, reply: oneshot::Sender<Result<(), Str
             let _ = reply.send(Err("force kill did not stop the jvm".to_string()));
         }
     }
+}
+
+fn spawn_state_watcher(mut state_rx: tokio::sync::watch::Receiver<ServerState>) {
+    tokio::spawn(async move {
+        let mut prev = *state_rx.borrow();
+        info!("state: {prev:?}");
+        while state_rx.changed().await.is_ok() {
+            let next = *state_rx.borrow();
+            info!("state: {prev:?} -> {next:?}");
+            prev = next;
+        }
+    });
+}
+
+fn spawn_event_watcher(mut log_rx: tokio::sync::broadcast::Receiver<mc_process::logs::McLog>) {
+    tokio::spawn(async move {
+        loop {
+            match log_rx.recv().await {
+                Ok(log) => match log.event {
+                    ServerEvent::Unknown => {}
+                    ServerEvent::Chat { .. } => debug!("event: {:?}", log.event),
+                    other => info!("event: {other:?}"),
+                },
+                Err(RecvError::Lagged(n)) => warn!("event channel lagged, dropped {n} entries"),
+                Err(RecvError::Closed) => break,
+            }
+        }
+    });
 }
 
 async fn op(srv: &mut ServerProcess, reply: oneshot::Sender<Result<(), String>>, op: Op) {
