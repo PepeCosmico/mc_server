@@ -145,11 +145,14 @@ async fn process_request(
             }
         }
         TcpRequest::Op(op) => {
-            let (reply_tx, _reply_rx) = oneshot::channel();
+            let (reply_tx, reply_rx) = oneshot::channel();
             tx.send(DaemonCommand::Op(reply_tx, op.clone())).await.ok();
-            Ok(serde_json::to_string(&TcpResponse::ok_with(
-                ResponsePayload::OpResult(op),
-            ))?)
+            match reply_rx.await? {
+                Ok(()) => Ok(serde_json::to_string(&TcpResponse::ok_with(
+                    ResponsePayload::OpResult(op),
+                ))?),
+                Err(e) => Ok(serde_json::to_string(&TcpResponse::error(&e))?),
+            }
         }
     }
 }
