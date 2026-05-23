@@ -62,9 +62,18 @@ impl ServerProcess {
     }
 
     /// Spawn the Java process and the supporting logger/reaper tasks.
+    ///
+    /// Idempotent from `Running`/`Starting`. Refuses while `Stopping`, because
+    /// the previous child is still alive and its reaper is still attached —
+    /// spawning a second JVM here would leak the old handle and let the ghost
+    /// reaper clobber fresh state once the old child finally exits.
     pub async fn start(&mut self) -> Result<()> {
-        if self.is_running() {
+        let current = *self.state_tx.borrow();
+        if matches!(current, ServerState::Running | ServerState::Starting) {
             return Ok(());
+        }
+        if matches!(current, ServerState::Stopping) {
+            return Err(Error::StartWhileStoppingError);
         }
 
         process::prepare_workdir(&self.cfg).await?;
@@ -82,6 +91,8 @@ impl ServerProcess {
         self.stdin = child.stdin.take();
 
         pidfile::write(&working_dir, self.process_id.unwrap())?;
+
+        self.state_tx.send_replace(ServerState::Starting);
 
         let stdout = child.stdout.take().expect("child stdout missing");
         let stderr = child.stderr.take().expect("child stderr missing");
@@ -101,21 +112,42 @@ impl ServerProcess {
             self.kill_signal.clone(),
         );
 
+        process::spawn_readiness_probe(
+            self.log_tx.subscribe(),
+            self.state_tx.clone(),
+            self.cfg.server.healthcheck_addr(),
+        );
+
         Ok(())
     }
 
-    /// Send `/stop` to the server.
+    /// Send `/stop` to the server and mark the state as `Stopping`.
+    ///
+    /// Idempotent: a no-op from `Stopped`/`Crashed`. The reaper sets the final
+    /// `Stopped` once the child actually exits.
     pub async fn stop(&mut self) -> Result<()> {
-        if matches!(*self.state_tx.borrow(), ServerState::Stopped) {
+        let current = *self.state_tx.borrow();
+        if matches!(current, ServerState::Stopped | ServerState::Crashed) {
             return Ok(());
         }
-        self.exec_command("stop").await
+        self.exec_command("stop").await?;
+        if matches!(current, ServerState::Starting | ServerState::Running) {
+            self.state_tx.send_replace(ServerState::Stopping);
+        }
+        Ok(())
     }
 
     /// Trigger a forced kill of the child process via the reaper's kill
     /// signal. Returns immediately; observe the exit through `state()`.
     pub fn force_stop(&self) {
         self.kill_signal.notify_one();
+    }
+
+    /// Clone of the kill signal, for callers (typically the actor's spawned
+    /// wait tasks) that need to escalate to force-kill without holding the
+    /// `ServerProcess` itself.
+    pub fn kill_handle(&self) -> Arc<Notify> {
+        self.kill_signal.clone()
     }
 
     /// Send `/op <player>` or `/deop <player>`.

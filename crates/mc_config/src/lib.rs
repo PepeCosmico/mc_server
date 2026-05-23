@@ -93,6 +93,22 @@ pub struct ServerCfg {
     /// If `true`, automatically accepts Mojang's EULA by writing to the eula.txt file.
     #[serde(default)]
     pub auto_eula: bool,
+    /// Minecraft server host used by the readiness TCP healthcheck.
+    /// Defaults to `127.0.0.1`.
+    #[serde(default = "default_healthcheck_host")]
+    pub healthcheck_host: String,
+    /// Minecraft server port used by the readiness TCP healthcheck.
+    /// Defaults to `25565`.
+    #[serde(default = "default_healthcheck_port")]
+    pub healthcheck_port: u16,
+}
+
+fn default_healthcheck_host() -> String {
+    "127.0.0.1".to_string()
+}
+
+fn default_healthcheck_port() -> u16 {
+    25565
 }
 
 impl Default for ServerCfg {
@@ -103,7 +119,16 @@ impl Default for ServerCfg {
             jar: PathBuf::from("server.jar"),
             nogui: true,
             auto_eula: false,
+            healthcheck_host: default_healthcheck_host(),
+            healthcheck_port: default_healthcheck_port(),
         }
+    }
+}
+
+impl ServerCfg {
+    /// `host:port` string consumed by the readiness probe's TCP healthcheck.
+    pub fn healthcheck_addr(&self) -> String {
+        format!("{}:{}", self.healthcheck_host, self.healthcheck_port)
     }
 }
 
@@ -133,11 +158,46 @@ impl ClientCfg {
 }
 
 /// Daemon-level options that are not tied to a specific subsystem.
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DaemonCfg {
     /// Policy when an orphan JVM is detected on daemon startup.
     #[serde(default)]
     pub orphan_policy: OrphanPolicy,
+    /// Seconds to wait for `Starting → Running` before escalating to force-kill.
+    /// Defaults to `120`.
+    #[serde(default = "default_start_timeout_secs")]
+    pub start_timeout_secs: u64,
+    /// Seconds to wait for `Stopping → Stopped` before escalating to force-kill.
+    /// Defaults to `60`.
+    #[serde(default = "default_stop_timeout_secs")]
+    pub stop_timeout_secs: u64,
+    /// Seconds to wait for the JVM to die after a force-kill before giving up.
+    /// Defaults to `5`.
+    #[serde(default = "default_force_kill_timeout_secs")]
+    pub force_kill_timeout_secs: u64,
+}
+
+fn default_start_timeout_secs() -> u64 {
+    120
+}
+
+fn default_stop_timeout_secs() -> u64 {
+    60
+}
+
+fn default_force_kill_timeout_secs() -> u64 {
+    5
+}
+
+impl Default for DaemonCfg {
+    fn default() -> Self {
+        Self {
+            orphan_policy: OrphanPolicy::default(),
+            start_timeout_secs: default_start_timeout_secs(),
+            stop_timeout_secs: default_stop_timeout_secs(),
+            force_kill_timeout_secs: default_force_kill_timeout_secs(),
+        }
+    }
 }
 
 /// What to do when the daemon starts and finds a pidfile pointing at a live JVM.

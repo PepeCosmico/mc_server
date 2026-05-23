@@ -29,6 +29,9 @@ pub enum Error {
     #[error("Error trying to execute command when the server is not runnning")]
     WriteWhileNotRunningError,
 
+    #[error("Cannot start: a previous shutdown is still in progress")]
+    StartWhileStoppingError,
+
     #[error("JAR file does not exist")]
     JarFileDoesNotExist,
 

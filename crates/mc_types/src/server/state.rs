@@ -14,14 +14,13 @@ pub enum ServerState {
 impl ServerState {
     /// Pure state-machine transition.
     ///
-    /// Returns the next state if `event` triggers a transition from `self`,
-    /// otherwise `None`. No I/O, no allocation — safe to unit-test without a
-    /// JVM.
+    /// The only event-driven transition is `Starting → Running` on `Ready`.
+    /// Everything else is driven imperatively: `start()` sets `Starting`,
+    /// `stop()` sets `Stopping`, and the reaper sets `Stopped`/`Crashed` when
+    /// the child exits.
     pub fn next(self, event: &ServerEvent) -> Option<Self> {
         match (self, event) {
-            (ServerState::Stopped, ServerEvent::Starting { .. }) => Some(ServerState::Starting),
             (ServerState::Starting, ServerEvent::Ready(_)) => Some(ServerState::Running),
-            (ServerState::Running, ServerEvent::Stopping) => Some(ServerState::Stopping),
             _ => None,
         }
     }
@@ -51,14 +50,6 @@ mod tests {
     }
 
     #[test]
-    fn stopped_to_starting() {
-        assert_eq!(
-            ServerState::Stopped.next(&starting_evt()),
-            Some(ServerState::Starting)
-        );
-    }
-
-    #[test]
     fn starting_to_running_on_ready() {
         assert_eq!(
             ServerState::Starting.next(&ServerEvent::Ready("1.0s".into())),
@@ -67,32 +58,40 @@ mod tests {
     }
 
     #[test]
-    fn running_to_stopping() {
-        assert_eq!(
-            ServerState::Running.next(&ServerEvent::Stopping),
-            Some(ServerState::Stopping)
-        );
-    }
-
-    #[test]
-    fn crashed_does_not_restart_on_starting_event() {
-        // Documenting current behaviour: restart-after-crash is broken; the
-        // state machine redesign (issue #26) will lift this restriction.
-        assert_eq!(ServerState::Crashed.next(&starting_evt()), None);
-    }
-
-    #[test]
     fn ready_is_ignored_outside_starting() {
         let evt = ServerEvent::Ready("1.0s".into());
         assert_eq!(ServerState::Stopped.next(&evt), None);
         assert_eq!(ServerState::Running.next(&evt), None);
         assert_eq!(ServerState::Stopping.next(&evt), None);
+        assert_eq!(ServerState::Crashed.next(&evt), None);
     }
 
     #[test]
-    fn stopping_is_ignored_outside_running() {
-        assert_eq!(ServerState::Stopped.next(&ServerEvent::Stopping), None);
-        assert_eq!(ServerState::Starting.next(&ServerEvent::Stopping), None);
+    fn starting_event_never_transitions() {
+        // Starting is now imperative (set by `start()`), not log-driven.
+        for s in [
+            ServerState::Stopped,
+            ServerState::Starting,
+            ServerState::Running,
+            ServerState::Stopping,
+            ServerState::Crashed,
+        ] {
+            assert_eq!(s.next(&starting_evt()), None);
+        }
+    }
+
+    #[test]
+    fn stopping_event_never_transitions() {
+        // Stopping is now imperative (set by `stop()`), not log-driven.
+        for s in [
+            ServerState::Stopped,
+            ServerState::Starting,
+            ServerState::Running,
+            ServerState::Stopping,
+            ServerState::Crashed,
+        ] {
+            assert_eq!(s.next(&ServerEvent::Stopping), None);
+        }
     }
 
     #[test]

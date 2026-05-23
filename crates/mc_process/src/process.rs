@@ -7,7 +7,9 @@ use mc_types::server::{event::ServerEvent, state::ServerState, version::McVersio
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::net::TcpStream;
 use tokio::process::Command;
 use tokio::select;
 use tokio::sync::{broadcast, watch, Notify};
@@ -101,6 +103,67 @@ pub(crate) fn spawn_reaper(
     });
 }
 
+/// Spawn the readiness probe that promotes `Starting → Running`.
+///
+/// Races the `Ready` log event against a TCP healthcheck on the MC port, so
+/// vanilla servers (whose log line we don't parse) still reach `Running`.
+/// Aborts if the state leaves `Starting` first, and never overwrites
+/// `Crashed`/`Stopping` set in parallel.
+pub(crate) fn spawn_readiness_probe(
+    log_rx: broadcast::Receiver<McLog>,
+    state_tx: watch::Sender<ServerState>,
+    healthcheck_addr: String,
+) {
+    let mut state_rx = state_tx.subscribe();
+    tokio::spawn(async move {
+        if *state_rx.borrow() != ServerState::Starting {
+            return;
+        }
+        select! {
+            _ = wait_for_ready_log(log_rx) => {}
+            _ = wait_for_tcp_healthcheck(&healthcheck_addr) => {}
+            _ = wait_until_not_starting(&mut state_rx) => return,
+        }
+        state_tx.send_if_modified(|state| {
+            if *state == ServerState::Starting {
+                *state = ServerState::Running;
+                true
+            } else {
+                false
+            }
+        });
+    });
+}
+
+async fn wait_until_not_starting(state_rx: &mut watch::Receiver<ServerState>) {
+    while state_rx.changed().await.is_ok() {
+        if *state_rx.borrow() != ServerState::Starting {
+            return;
+        }
+    }
+}
+
+async fn wait_for_ready_log(mut log_rx: broadcast::Receiver<McLog>) {
+    loop {
+        match log_rx.recv().await {
+            Ok(log) if matches!(log.event, ServerEvent::Ready(_)) => return,
+            Ok(_) => continue,
+            Err(broadcast::error::RecvError::Lagged(_)) => continue,
+            Err(broadcast::error::RecvError::Closed) => std::future::pending::<()>().await,
+        }
+    }
+}
+
+async fn wait_for_tcp_healthcheck(addr: &str) {
+    tokio::time::sleep(Duration::from_secs(10)).await;
+    loop {
+        if TcpStream::connect(addr).await.is_ok() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    }
+}
+
 /// Spawn the task that consumes stdout+stderr, parses log lines, drives state
 /// transitions, and forwards typed [`McLog`] entries on `log_tx`.
 pub(crate) fn spawn_logger(
@@ -158,25 +221,27 @@ fn handle_stderr_line(line: String, log_tx: &broadcast::Sender<McLog>) {
     let _ = log_tx.send(log);
 }
 
-/// Apply the pure state transition and any associated metadata side-effects
-/// (version_tx is populated on `Stopped → Starting`).
+/// Publish MC/Fabric version metadata and apply the only remaining log-driven
+/// transition (`Starting → Running` on `Ready`). All other state changes are
+/// imperative (`start`, `stop`) or driven by the reaper.
 fn apply_event(
     event: &ServerEvent,
     state_tx: &watch::Sender<ServerState>,
     version_tx: &watch::Sender<Option<McVersion>>,
 ) {
+    if let ServerEvent::Starting {
+        mc_version,
+        fabric_version,
+    } = event
+    {
+        version_tx.send_replace(Some(McVersion {
+            mc_version: mc_version.clone(),
+            fabric_version: fabric_version.clone(),
+        }));
+    }
+
     let current = *state_tx.borrow();
     if let Some(next) = current.next(event) {
         state_tx.send_replace(next);
-        if let ServerEvent::Starting {
-            mc_version,
-            fabric_version,
-        } = event
-        {
-            version_tx.send_replace(Some(McVersion {
-                mc_version: mc_version.clone(),
-                fabric_version: fabric_version.clone(),
-            }));
-        }
     }
 }
